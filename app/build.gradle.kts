@@ -52,9 +52,18 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     
+    // Material Icons
+    implementation("androidx.compose.material:material-icons-extended:1.5.4")
+    
     // JSON
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     
     // Network
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    
+    // QR Code Scanning (ML Kit)
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation("androidx.camera:camera-camera2:1.3.1")
+    implementation("androidx.camera:camera-lifecycle:1.3.1")
+    implementation("androidx.camera:camera-view:1.3.1")
 }
