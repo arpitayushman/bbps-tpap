@@ -17,3 +17,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+/app/build/
+# Ignore all build folders
+build/
+app/build/
+.gradle/
+*.apk
