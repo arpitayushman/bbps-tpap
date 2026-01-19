@@ -44,16 +44,17 @@ object BackendApi {
         
         response.close()
     }
-    
-    fun encryptStatement(
+
+    private fun postEncryptedPayload(
         baseUrl: String,
+        path: String,
         request: EncryptStatementRequest
     ): EncryptedStatementResponse {
         val jsonBody = json.encodeToString(request)
         val requestBody = jsonBody.toRequestBody("application/json".toMediaType())
         
         val httpRequest = Request.Builder()
-            .url("$baseUrl/v1/statement/encrypt")
+            .url("$baseUrl$path")
             .post(requestBody)
             .addHeader("Content-Type", "application/json")
             .build()
@@ -62,7 +63,7 @@ object BackendApi {
         
         if (!response.isSuccessful) {
             val errorBody = response.body?.string() ?: ""
-            val errorMessage = "Failed to encrypt statement: ${response.code} ${response.message}"
+            val errorMessage = "Failed to call $path: ${response.code} ${response.message}"
             val fullError = if (errorBody.isNotEmpty()) {
                 "$errorMessage\nResponse: $errorBody"
             } else {
@@ -76,4 +77,28 @@ object BackendApi {
         
         return json.decodeFromString<EncryptedStatementResponse>(responseBody)
     }
+
+    /**
+     * Bill statement encryption API (preferred).
+     */
+    fun encryptBillStatement(
+        baseUrl: String,
+        request: EncryptStatementRequest
+    ): EncryptedStatementResponse = postEncryptedPayload(baseUrl, "/v1/bill-statement/encrypt", request)
+
+    /**
+     * Payment history encryption API (preferred).
+     */
+    fun encryptPaymentHistory(
+        baseUrl: String,
+        request: EncryptStatementRequest
+    ): EncryptedStatementResponse = postEncryptedPayload(baseUrl, "/v1/payment-history/encrypt", request)
+
+    /**
+     * Legacy endpoint (kept for backward compatibility).
+     */
+    fun encryptStatement(
+        baseUrl: String,
+        request: EncryptStatementRequest
+    ): EncryptedStatementResponse = postEncryptedPayload(baseUrl, "/v1/statement/encrypt", request)
 }

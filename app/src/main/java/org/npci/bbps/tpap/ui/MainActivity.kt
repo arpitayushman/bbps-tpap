@@ -173,6 +173,16 @@ fun BillPaymentScreen(navController: NavController, type: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CloneTopBar(onQrScanClick: () -> Unit = {}) {
+    val context = LocalContext.current
+    var showDeviceIdDialog by remember { mutableStateOf(false) }
+    val deviceId = remember {
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+    }
+
+    if (showDeviceIdDialog) {
+        DeviceIdDialog(deviceId = deviceId, onDismiss = { showDeviceIdDialog = false })
+    }
+
     TopAppBar(
         title = {
             Column {
@@ -183,7 +193,9 @@ fun CloneTopBar(onQrScanClick: () -> Unit = {}) {
         actions = {
             IconButton(onClick = onQrScanClick) { Icon(Icons.Default.QrCodeScanner, "Scan", tint = Color.White) }
             IconButton(onClick = {}) { Icon(Icons.Default.Notifications, "Notify", tint = Color.White) }
-            IconButton(onClick = {}) { Icon(Icons.Default.HelpOutline, "Help", tint = Color.White) }
+            IconButton(onClick = { showDeviceIdDialog = true }) {
+                Icon(Icons.Default.HelpOutline, "Help", tint = Color.White)
+            }
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = BharatBlue)
     )
@@ -331,6 +343,16 @@ fun CloneBottomNav(onQrScanClick: () -> Unit = {}) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ElectricityScreen(navController: NavController) {
+    val context = LocalContext.current
+    var showDeviceIdDialog by remember { mutableStateOf(false) }
+    val deviceId = remember {
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+    }
+
+    if (showDeviceIdDialog) {
+        DeviceIdDialog(deviceId = deviceId, onDismiss = { showDeviceIdDialog = false })
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -341,7 +363,9 @@ fun ElectricityScreen(navController: NavController) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = {}) { Icon(Icons.Default.HelpOutline, "Help", tint = Color.White) }
+                    IconButton(onClick = { showDeviceIdDialog = true }) {
+                        Icon(Icons.Default.HelpOutline, "Help", tint = Color.White)
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = BharatBlue)
             )
@@ -464,8 +488,20 @@ fun getKarnatakaBillers(): List<String> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillerDetailsScreen(navController: NavController, billerName: String) {
-    var consumerNumber by remember { mutableStateOf("") }
-    val isButtonEnabled = consumerNumber.isNotEmpty()
+    val context = LocalContext.current
+    var showDeviceIdDialog by remember { mutableStateOf(false) }
+    val deviceId = remember {
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+    }
+
+    if (showDeviceIdDialog) {
+        DeviceIdDialog(deviceId = deviceId, onDismiss = { showDeviceIdDialog = false })
+    }
+
+    // Prefill consumer number (no manual entry required)
+    // In a real app this would come from the selected account / profile.
+    var consumerNumber by remember { mutableStateOf("CON123456789") }
+    val isButtonEnabled = consumerNumber.isNotBlank()
 
     Scaffold(
         topBar = {
@@ -496,7 +532,9 @@ fun BillerDetailsScreen(navController: NavController, billerName: String) {
                             colorFilter = ColorFilter.tint(Color.White)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Icon(Icons.Default.HelpOutline, "Help", tint = Color.White)
+                        IconButton(onClick = { showDeviceIdDialog = true }) {
+                            Icon(Icons.Default.HelpOutline, "Help", tint = Color.White)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = BharatBlue)
@@ -556,7 +594,7 @@ fun BillerDetailsScreen(navController: NavController, billerName: String) {
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "By proceeding further, you allow TPApp to fetch your current and future bills and remind you.",
+                    text = "By proceeding further, you allow BBPS COU to fetch your current and future bills and remind you.",
                     fontSize = 12.sp,
                     color = Color.Gray,
                     lineHeight = 16.sp
@@ -574,14 +612,37 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showDeviceIdDialog by remember { mutableStateOf(false) }
 
     // Get device ID
     val deviceId = remember {
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
     }
 
-    // TPAP Mini Statement Logic (from original TPAP MainActivity)
-    val onMiniStatementClick: () -> Unit = {
+    if (showDeviceIdDialog) {
+        DeviceIdDialog(deviceId = deviceId, onDismiss = { showDeviceIdDialog = false })
+    }
+
+    fun launchCallableUi(response: org.npci.bbps.tpap.model.EncryptedStatementResponse, payloadType: String) {
+        val intent = Intent().apply {
+            setClassName(
+                "org.npci.bbps.callableui",
+                "org.npci.bbps.callableui.entry.StatementRenderActivity"
+            )
+            putExtra("encryptedPayload", response.encryptedPayload)
+            putExtra("wrappedDek", response.wrappedDek)
+            putExtra("iv", response.iv)
+            putExtra("senderPublicKey", response.senderPublicKey)
+            putExtra("payloadType", payloadType)
+        }
+        Log.d("TPAP", "Launching callable app with encrypted data (payloadType=$payloadType)...")
+        context.startActivity(intent)
+    }
+
+    fun startEncryptedFlow(
+        payloadType: String,
+        encryptFn: (String, EncryptStatementRequest) -> org.npci.bbps.tpap.model.EncryptedStatementResponse
+    ) {
         scope.launch {
             isLoading = true
             errorMessage = null
@@ -626,9 +687,9 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
 
                 var response = try {
                     withContext(Dispatchers.IO) {
-                        BackendApi.encryptStatement(
-                            baseUrl = baseUrl,
-                            request = EncryptStatementRequest(
+                        encryptFn(
+                            baseUrl,
+                            EncryptStatementRequest(
                                 statementId = AppConfig.statementId,
                                 consumerId = consumerId,
                                 deviceId = deviceId
@@ -641,7 +702,7 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                             errorMessage.contains("IllegalStateException", ignoreCase = true) ||
                             errorMessage.contains("device key", ignoreCase = true) ||
                             (errorMessage.contains("500") && errorMessage.contains("encrypt")) ||
-                            errorMessage.contains("Failed to encrypt statement: 500")
+                            errorMessage.contains("Failed to call", ignoreCase = true)
 
                     Log.d("TPAP", "Encryption error: $errorMessage")
                     Log.d("TPAP", "Is device not registered? $isDeviceNotRegistered")
@@ -663,9 +724,9 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                         Log.d("TPAP", "Device registered successfully")
 
                         withContext(Dispatchers.IO) {
-                            BackendApi.encryptStatement(
-                                baseUrl = baseUrl,
-                                request = EncryptStatementRequest(
+                            encryptFn(
+                                baseUrl,
+                                EncryptStatementRequest(
                                     statementId = AppConfig.statementId,
                                     consumerId = consumerId,
                                     deviceId = deviceId
@@ -683,27 +744,30 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                 Log.d("TPAP", "IV: ${response.iv}")
                 Log.d("TPAP", "Sender public key length: ${response.senderPublicKey.length}")
 
-                val intent = Intent().apply {
-                    setClassName(
-                        "org.npci.bbps.callableui",
-                        "org.npci.bbps.callableui.entry.StatementRenderActivity"
-                    )
-                    putExtra("encryptedPayload", response.encryptedPayload)
-                    putExtra("wrappedDek", response.wrappedDek)
-                    putExtra("iv", response.iv)
-                    putExtra("senderPublicKey", response.senderPublicKey)
-                }
-
-                Log.d("TPAP", "Launching callable app with encrypted data...")
-                context.startActivity(intent)
+                launchCallableUi(response, payloadType)
 
             } catch (e: Exception) {
-                Log.e("TPAP", "Error in mini statement flow", e)
-                errorMessage = "Failed to load mini statement: ${e.message}"
+                Log.e("TPAP", "Error in secure payload flow", e)
+                errorMessage = "Failed to load secure data: ${e.message}"
             } finally {
                 isLoading = false
             }
         }
+    }
+
+    // Bill statement and payment history are separate encrypted APIs/screens
+    val onBillStatementClick: () -> Unit = {
+        startEncryptedFlow(
+            payloadType = "BILL_STATEMENT",
+            encryptFn = BackendApi::encryptBillStatement
+        )
+    }
+
+    val onPaymentHistoryClick: () -> Unit = {
+        startEncryptedFlow(
+            payloadType = "PAYMENT_HISTORY",
+            encryptFn = BackendApi::encryptPaymentHistory
+        )
     }
 
     // TPAP QR Scan Logic (from original TPAP MainActivity)
@@ -738,7 +802,9 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                             colorFilter = ColorFilter.tint(Color.White)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Icon(Icons.Default.HelpOutline, "Help", tint = Color.White)
+                        IconButton(onClick = { showDeviceIdDialog = true }) {
+                            Icon(Icons.Default.HelpOutline, "Help", tint = Color.White)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = BharatBlue)
@@ -845,7 +911,7 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
 
                     // SHOW MY STATEMENT BUTTON (triggers TPAP logic)
                     Button(
-                        onClick = onMiniStatementClick,
+                        onClick = onBillStatementClick,
                         enabled = !isLoading,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = BharatBlue),
@@ -860,8 +926,34 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                             Spacer(modifier = Modifier.width(8.dp))
                         }
                         Text(
-                            "Show my statement",
+                            "Show bill statement",
                             color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // PAYMENT HISTORY BUTTON (launches callable UI with payment-only payload)
+                    OutlinedButton(
+                        onClick = onPaymentHistoryClick,
+                        enabled = !isLoading,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = BharatBlue
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Payment,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Show payment history",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -895,15 +987,15 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // QUICK PAY CHIPS
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        QuickAmountChip("₹201")
-                        QuickAmountChip("₹301")
-                        QuickAmountChip("₹401")
-                        QuickAmountChip("₹501")
-                    }
+//                    Row(
+//                        modifier = Modifier.fillMaxWidth(),
+//                        horizontalArrangement = Arrangement.SpaceBetween
+//                    ) {
+//                        QuickAmountChip("₹201")
+//                        QuickAmountChip("₹301")
+//                        QuickAmountChip("₹401")
+//                        QuickAmountChip("₹501")
+//                    }
                 }
             }
         }
@@ -920,4 +1012,23 @@ fun QuickAmountChip(amount: String) {
     ) {
         Text(amount, color = BharatBlue, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
+}
+
+@Composable
+private fun DeviceIdDialog(deviceId: String?, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Device ID") },
+        text = {
+            Text(
+                text = "ANDROID_ID:\n${deviceId ?: "Unavailable"}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("OK")
+            }
+        }
+    )
 }

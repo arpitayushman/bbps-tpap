@@ -79,7 +79,8 @@ class QrScanActivity : ComponentActivity() {
         Log.d("QrScanActivity", "QR code scanned successfully")
         Log.d("QrScanActivity", "Encrypted payload length: ${qrData.encryptedPayload.length}")
         
-        // Launch callable app with encrypted data
+        // Launch callable app with encrypted data.
+        // IMPORTANT: QR flow is bill statement only (never payment history).
         val intent = Intent().apply {
             setClassName(
                 "org.npci.bbps.callableui",
@@ -89,6 +90,7 @@ class QrScanActivity : ComponentActivity() {
             putExtra("wrappedDek", qrData.wrappedDek)
             putExtra("iv", qrData.iv)
             putExtra("senderPublicKey", qrData.senderPublicKey)
+            putExtra("payloadType", "BILL_STATEMENT")
         }
         
         try {
