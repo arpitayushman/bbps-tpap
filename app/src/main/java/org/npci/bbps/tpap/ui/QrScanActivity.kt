@@ -35,6 +35,8 @@ import com.google.mlkit.vision.common.InputImage
 import kotlinx.serialization.json.Json
 import org.npci.bbps.tpap.model.QrCodeData
 import org.npci.bbps.tpap.model.EncryptedStatementResponse
+import org.npci.bbps.tpap.model.QrPaymentPayload
+import org.npci.bbps.tpap.util.QrIntentContract
 import java.util.concurrent.Executors
 
 class QrScanActivity : ComponentActivity() {
@@ -75,37 +77,43 @@ class QrScanActivity : ComponentActivity() {
         }
     }
     
-    private fun handleQrCodeScanned(qrData: QrCodeData) {
+    private fun handleQrCodeScanned(qrData: QrPaymentPayload) {
         Log.d("QrScanActivity", "QR code scanned successfully")
-        Log.d("QrScanActivity", "Encrypted payload length: ${qrData.encryptedPayload.length}")
-        
-        // Launch callable app with encrypted data.
-        // IMPORTANT: QR flow is bill statement only (never payment history).
-        val intent = Intent().apply {
-            setClassName(
-                "org.npci.bbps.callableui",
-                "org.npci.bbps.callableui.entry.StatementRenderActivity"
-            )
-            putExtra("encryptedPayload", qrData.encryptedPayload)
-            putExtra("wrappedDek", qrData.wrappedDek)
-            putExtra("iv", qrData.iv)
-            putExtra("senderPublicKey", qrData.senderPublicKey)
-            putExtra("payloadType", "BILL_STATEMENT")
+
+        // Launch TPAP PaymentScreen directly with bill details + encrypted fields from QR payload.
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
+            putExtra(QrIntentContract.EXTRA_FROM_QR, true)
+            putExtra(QrIntentContract.EXTRA_BILLER_ID, qrData.billerId)
+            putExtra(QrIntentContract.EXTRA_BILLER_NAME, qrData.billerName)
+            putExtra(QrIntentContract.EXTRA_CONSUMER_NUMBER, qrData.consumerNumber)
+            putExtra(QrIntentContract.EXTRA_AMOUNT, qrData.amount)
+            putExtra(QrIntentContract.EXTRA_DUE_DATE, qrData.dueDate)
+
+            putExtra(QrIntentContract.EXTRA_ENCRYPTED_PAYLOAD, qrData.encryptedPayload)
+            putExtra(QrIntentContract.EXTRA_WRAPPED_DEK, qrData.wrappedDek)
+            putExtra(QrIntentContract.EXTRA_IV, qrData.iv)
+            putExtra(QrIntentContract.EXTRA_SENDER_PUBLIC_KEY, qrData.senderPublicKey)
+            if (qrData.expiry != null) {
+                putExtra(QrIntentContract.EXTRA_EXPIRY, qrData.expiry)
+            }
         }
-        
+
         try {
             startActivity(intent)
             finish()
         } catch (e: Exception) {
-            Log.e("QrScanActivity", "Failed to launch callable app", e)
-            Toast.makeText(this, "Failed to open callable app: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e("QrScanActivity", "Failed to open PaymentScreen after QR scan", e)
+            Toast.makeText(this, "Failed to open payment screen: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
+
 }
 
 @Composable
 fun QrScanScreen(
-    onQrCodeScanned: (QrCodeData) -> Unit,
+    onQrCodeScanned: (QrPaymentPayload) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -400,7 +408,7 @@ private fun processImageProxy(
     barcodeScanner: com.google.mlkit.vision.barcode.BarcodeScanner,
     scanBoxWidth: Float,
     scanBoxHeight: Float,
-    onQrCodeFound: (QrCodeData) -> Unit
+    onQrCodeFound: (QrPaymentPayload) -> Unit
 ) {
     val mediaImage = imageProxy.image
     if (mediaImage != null) {
@@ -458,25 +466,57 @@ private fun processImageProxy(
                                 val rawValue = barcode.rawValue
                                 if (rawValue != null) {
                                     try {
-                                        // Try parsing as EncryptedStatementResponse first (from backend)
-                                        val encryptedResponse = Json.decodeFromString<EncryptedStatementResponse>(rawValue)
-                                        val qrData = QrCodeData(
-                                            encryptedPayload = encryptedResponse.encryptedPayload,
-                                            wrappedDek = encryptedResponse.wrappedDek,
-                                            iv = encryptedResponse.iv,
-                                            senderPublicKey = encryptedResponse.senderPublicKey,
-                                            expiry = encryptedResponse.expiry
+                                        // 1) Preferred: parse as QR Payment payload (JSON)
+                                        val json = Json { ignoreUnknownKeys = true; isLenient = true }
+                                        val payload = json.decodeFromString<QrPaymentPayload>(rawValue)
+                                        val normalized = normalizeQrPayload(payload)
+                                        if (normalized != null) {
+                                            onQrCodeFound(normalized)
+                                            return@addOnSuccessListener
+                                        }
+                                    } catch (_: Exception) {
+                                        // ignore and try other formats
+                                    }
+
+                                    try {
+                                        // 2) Backward compatible: EncryptedStatementResponse (JSON)
+                                        val json = Json { ignoreUnknownKeys = true; isLenient = true }
+                                        val encryptedResponse = json.decodeFromString<EncryptedStatementResponse>(rawValue)
+                                        onQrCodeFound(
+                                            QrPaymentPayload(
+                                                encryptedPayload = encryptedResponse.encryptedPayload,
+                                                wrappedDek = encryptedResponse.wrappedDek,
+                                                iv = encryptedResponse.iv,
+                                                senderPublicKey = encryptedResponse.senderPublicKey,
+                                                expiry = encryptedResponse.expiry
+                                            )
                                         )
-                                        onQrCodeFound(qrData)
                                         return@addOnSuccessListener // Stop processing after finding valid QR
                                     } catch (e: Exception) {
                                         try {
-                                            // Fallback: try parsing as QrCodeData directly
-                                            val qrData = Json.decodeFromString<QrCodeData>(rawValue)
-                                            onQrCodeFound(qrData)
+                                            // 3) Backward compatible: QrCodeData (JSON)
+                                            val json = Json { ignoreUnknownKeys = true; isLenient = true }
+                                            val qrData = json.decodeFromString<QrCodeData>(rawValue)
+                                            onQrCodeFound(
+                                                QrPaymentPayload(
+                                                    encryptedPayload = qrData.encryptedPayload,
+                                                    wrappedDek = qrData.wrappedDek,
+                                                    iv = qrData.iv,
+                                                    senderPublicKey = qrData.senderPublicKey,
+                                                    expiry = qrData.expiry
+                                                )
+                                            )
                                             return@addOnSuccessListener // Stop processing after finding valid QR
                                         } catch (e2: Exception) {
-                                            Log.e("QrScanScreen", "Failed to parse QR code data", e2)
+                                            // 4) Plain-text key/value payload
+                                            val fromText = parsePlainTextQrPayload(rawValue)
+                                            val normalized = normalizeQrPayload(fromText)
+                                            if (normalized != null) {
+                                                onQrCodeFound(normalized)
+                                                return@addOnSuccessListener
+                                            }
+
+                                            Log.e("QrScanScreen", "Failed to parse QR code payload", e2)
                                         }
                                     }
                                 }
@@ -498,4 +538,91 @@ private fun processImageProxy(
             }
         }
     }
+}
+
+private fun normalizeQrPayload(payload: QrPaymentPayload): QrPaymentPayload? {
+    val encryptedPayload = payload.encryptedPayload?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
+    val wrappedDek = payload.wrappedDek?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
+    val iv = payload.iv?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
+    val senderPublicKey = payload.senderPublicKey?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
+
+    return payload.copy(
+        encryptedPayload = encryptedPayload,
+        wrappedDek = wrappedDek,
+        iv = iv,
+        senderPublicKey = senderPublicKey,
+        billerId = payload.billerId?.trim(),
+        billerName = payload.billerName?.trim(),
+        consumerNumber = payload.consumerNumber?.trim(),
+        amount = payload.amount?.trim(),
+        dueDate = payload.dueDate?.trim()
+    )
+}
+
+private fun parsePlainTextQrPayload(rawValue: String): QrPaymentPayload {
+    // Supports formats like:
+    // billerId=BESCOM|consumerNumber=CON123|amount=101|dueDate=15-Jan-2026|encryptedPayload=...|wrappedDek=...|iv=...|senderPublicKey=...
+    // or newline/semicolon separated and either ":" or "=" as separators.
+    val separators = charArrayOf('\n', '|', ';', '&', ',')
+    val tokens = rawValue
+        .trim()
+        .split(*separators)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+    val map = linkedMapOf<String, String>()
+    for (token in tokens) {
+        val pair = when {
+            token.contains('=') -> token.split('=', limit = 2)
+            token.contains(':') -> token.split(':', limit = 2)
+            else -> null
+        } ?: continue
+
+        val key = pair[0].trim().lowercase()
+        val value = pair.getOrNull(1)?.trim().orEmpty()
+        if (key.isNotEmpty() && value.isNotEmpty()) {
+            map[key] = value
+        }
+    }
+
+    fun v(vararg keys: String): String? =
+        keys.asSequence().mapNotNull { map[it.lowercase()] }.firstOrNull()
+
+    fun rx(pattern: String): String? =
+        Regex(pattern, setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE))
+            .find(rawValue)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    // Also support space-delimited formats like:
+    // "billerID BESCOM consumerNumber CON123 amount 101 dueDate 15-Jan-2026 ..."
+    val billerId = v("billerid", "biller_id", "biller")
+        ?: rx("""\b(?:biller\s*id|billerid)\b\s*[:=]?\s*([A-Za-z0-9_-]+)""")
+
+    val billerName = v("billername", "biller_name")
+        ?: rx("""\b(?:biller\s*name|billername)\b\s*[:=]?\s*([^|\n;&,]+)""")
+
+    val consumerNumber = v("consumernumber", "consumer_number", "consumer", "account", "accountnumber")
+        ?: rx("""\b(?:consumer\s*number|consumernumber|account\s*number|accountnumber)\b\s*[:=]?\s*([A-Za-z0-9_-]+)""")
+
+    val amount = v("amount", "amt")
+        ?: rx("""\b(?:amount|amt)\b\s*[:=]?\s*(₹?\s*[0-9]+(?:\.[0-9]{1,2})?)""")
+
+    val dueDate = v("duedate", "due_date", "due")
+        ?: rx("""\b(?:due\s*date|duedate)\b\s*[:=]?\s*([0-9]{1,2}[-/ ][A-Za-z]{3,9}[-/ ][0-9]{2,4}|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})""")
+
+    return QrPaymentPayload(
+        billerId = billerId,
+        billerName = billerName,
+        consumerNumber = consumerNumber,
+        amount = amount,
+        dueDate = dueDate,
+        encryptedPayload = v("encryptedpayload", "encrypted_payload", "payload"),
+        wrappedDek = v("wrappeddek", "wrapped_dek", "dek"),
+        iv = v("iv"),
+        senderPublicKey = v("senderpublickey", "sender_public_key", "senderkey", "publickey"),
+        expiry = v("expiry")?.toLongOrNull()
+    )
 }

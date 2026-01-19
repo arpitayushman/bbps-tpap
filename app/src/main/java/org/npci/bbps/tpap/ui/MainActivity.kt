@@ -51,9 +51,12 @@ import kotlinx.coroutines.withContext
 import org.npci.bbps.tpap.R
 import org.npci.bbps.tpap.config.AppConfig
 import org.npci.bbps.tpap.model.DeviceRegistrationRequest
+import org.npci.bbps.tpap.model.EncryptedStatementResponse
 import org.npci.bbps.tpap.model.EncryptStatementRequest
+import org.npci.bbps.tpap.model.QrPaymentPayload
 import org.npci.bbps.tpap.network.BackendApi
 import org.npci.bbps.tpap.util.DeviceKeyHelper
+import org.npci.bbps.tpap.util.QrIntentContract
 
 // --- Colors ---
 val BharatBlue = Color(0xFF1976D2) // Primary blue matching Bharat Connect
@@ -61,8 +64,11 @@ val BharatLightBlue = Color(0xFF2196F3) // Lighter blue accent
 val BgGray = Color(0xFFF1F3F6)
 
 class MainActivity : ComponentActivity() {
+    private val latestQrPayload = mutableStateOf<QrPaymentPayload?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        latestQrPayload.value = extractQrPaymentPayload(intent)
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(
@@ -70,16 +76,35 @@ class MainActivity : ComponentActivity() {
                     background = BgGray
                 )
             ) {
-                AppNavigation()
+                AppNavigation(qrPayload = latestQrPayload.value)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        latestQrPayload.value = extractQrPaymentPayload(intent)
     }
 }
 
 // --- Navigation ---
 @Composable
-fun AppNavigation() {
+fun AppNavigation(qrPayload: QrPaymentPayload? = null) {
     val navController = rememberNavController()
+
+    // If app is opened from QR scan, jump directly to PaymentScreen once.
+    LaunchedEffect(qrPayload) {
+        if (qrPayload != null) {
+            val displayName = (qrPayload.billerName ?: qrPayload.billerId ?: "Biller")
+            val encodedName = displayName.replace(" ", "_")
+            val consumer = qrPayload.consumerNumber?.takeIf { it.isNotBlank() } ?: "UNKNOWN"
+            navController.navigate("payment_screen/$encodedName/$consumer") {
+                popUpTo("home") { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+    }
+
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             HomeScreen(navController)
@@ -95,9 +120,38 @@ fun AppNavigation() {
         composable("payment_screen/{billerName}/{consumerNumber}") { backStackEntry ->
             val billerName = backStackEntry.arguments?.getString("billerName")?.replace("_", " ") ?: "Biller"
             val consumerNumber = backStackEntry.arguments?.getString("consumerNumber") ?: ""
-            PaymentScreen(navController, billerName, consumerNumber)
+            val matchedQrPayload = qrPayload?.takeIf { payload ->
+                val payloadConsumer = payload.consumerNumber?.trim().orEmpty()
+                payloadConsumer.isBlank() || payloadConsumer == consumerNumber
+            }
+            PaymentScreen(navController, billerName, consumerNumber, qrPayload = matchedQrPayload)
         }
     }
+}
+
+private fun extractQrPaymentPayload(intent: Intent?): QrPaymentPayload? {
+    if (intent == null) return null
+    val fromQr = intent.getBooleanExtra(QrIntentContract.EXTRA_FROM_QR, false)
+    if (!fromQr) return null
+
+    val expiry = if (intent.hasExtra(QrIntentContract.EXTRA_EXPIRY)) {
+        intent.getLongExtra(QrIntentContract.EXTRA_EXPIRY, 0L)
+    } else {
+        null
+    }
+
+    return QrPaymentPayload(
+        billerId = intent.getStringExtra(QrIntentContract.EXTRA_BILLER_ID),
+        billerName = intent.getStringExtra(QrIntentContract.EXTRA_BILLER_NAME),
+        consumerNumber = intent.getStringExtra(QrIntentContract.EXTRA_CONSUMER_NUMBER),
+        amount = intent.getStringExtra(QrIntentContract.EXTRA_AMOUNT),
+        dueDate = intent.getStringExtra(QrIntentContract.EXTRA_DUE_DATE),
+        encryptedPayload = intent.getStringExtra(QrIntentContract.EXTRA_ENCRYPTED_PAYLOAD),
+        wrappedDek = intent.getStringExtra(QrIntentContract.EXTRA_WRAPPED_DEK),
+        iv = intent.getStringExtra(QrIntentContract.EXTRA_IV),
+        senderPublicKey = intent.getStringExtra(QrIntentContract.EXTRA_SENDER_PUBLIC_KEY),
+        expiry = expiry
+    )
 }
 
 // --- Screens ---
@@ -606,7 +660,12 @@ fun BillerDetailsScreen(navController: NavController, billerName: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PaymentScreen(navController: NavController, billerName: String, consumerNumber: String) {
+fun PaymentScreen(
+    navController: NavController,
+    billerName: String,
+    consumerNumber: String,
+    qrPayload: QrPaymentPayload? = null
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -623,7 +682,7 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
         DeviceIdDialog(deviceId = deviceId, onDismiss = { showDeviceIdDialog = false })
     }
 
-    fun launchCallableUi(response: org.npci.bbps.tpap.model.EncryptedStatementResponse, payloadType: String) {
+    fun launchCallableUi(response: EncryptedStatementResponse, payloadType: String) {
         val intent = Intent().apply {
             setClassName(
                 "org.npci.bbps.callableui",
@@ -755,12 +814,39 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
         }
     }
 
-    // Bill statement and payment history are separate encrypted APIs/screens
-    val onBillStatementClick: () -> Unit = {
-        startEncryptedFlow(
-            payloadType = "BILL_STATEMENT",
-            encryptFn = BackendApi::encryptBillStatement
+    val qrStatementResponse: EncryptedStatementResponse? = remember(qrPayload) {
+        val encryptedPayload = qrPayload?.encryptedPayload?.trim().takeUnless { it.isNullOrEmpty() } ?: return@remember null
+        val wrappedDek = qrPayload?.wrappedDek?.trim().takeUnless { it.isNullOrEmpty() } ?: return@remember null
+        val iv = qrPayload?.iv?.trim().takeUnless { it.isNullOrEmpty() } ?: return@remember null
+        val senderPublicKey = qrPayload?.senderPublicKey?.trim().takeUnless { it.isNullOrEmpty() } ?: return@remember null
+        EncryptedStatementResponse(
+            encryptedPayload = encryptedPayload,
+            wrappedDek = wrappedDek,
+            iv = iv,
+            senderPublicKey = senderPublicKey,
+            expiry = qrPayload?.expiry ?: 0L
         )
+    }
+
+    // Bill statement and payment history are separate encrypted APIs/screens
+    val onBillStatementClick: () -> Unit = onBillStatementClick@{
+        if (qrPayload != null) {
+            if (qrStatementResponse == null) {
+                errorMessage = "QR payload is missing encrypted statement fields."
+                return@onBillStatementClick
+            }
+            try {
+                launchCallableUi(qrStatementResponse, "BILL_STATEMENT")
+            } catch (e: Exception) {
+                Log.e("TPAP", "Failed to launch callable app from QR payload", e)
+                errorMessage = "Failed to open bill statement: ${e.message}"
+            }
+        } else {
+            startEncryptedFlow(
+                payloadType = "BILL_STATEMENT",
+                encryptFn = BackendApi::encryptBillStatement
+            )
+        }
     }
 
     val onPaymentHistoryClick: () -> Unit = {
@@ -775,6 +861,18 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
         val intent = Intent(context, QrScanActivity::class.java)
         context.startActivity(intent)
     }
+
+    val effectiveBillerName = qrPayload?.billerName?.takeIf { it.isNotBlank() }
+        ?: qrPayload?.billerId?.takeIf { it.isNotBlank() }
+        ?: billerName
+    val effectiveConsumerNumber = qrPayload?.consumerNumber?.takeIf { it.isNotBlank() } ?: consumerNumber
+
+    val amountText = qrPayload?.amount?.takeIf { it.isNotBlank() }?.let { raw ->
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("₹")) trimmed else "₹ $trimmed"
+    } ?: "₹ 101"
+    val dueDateText = qrPayload?.dueDate?.takeIf { it.isNotBlank() }?.let { "Due Date: ${it.trim()}" }
+        ?: "Due Date: 15-Jan-2026"
 
     Scaffold(
         topBar = {
@@ -880,8 +978,8 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column {
-                        Text(billerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text(consumerNumber, fontSize = 12.sp, color = Color.Gray)
+                        Text(effectiveBillerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(effectiveConsumerNumber, fontSize = 12.sp, color = Color.Gray)
                     }
                 }
             }
@@ -899,11 +997,11 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("₹ 101", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                    Text(amountText, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.Black)
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text("Due Date: 15-Jan-2026", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(dueDateText, color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
                     Spacer(modifier = Modifier.height(16.dp))
                     HorizontalDivider(thickness = 1.dp, color = Color.LightGray.copy(alpha = 0.3f))
@@ -961,27 +1059,29 @@ fun PaymentScreen(navController: NavController, billerName: String, consumerNumb
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // SCAN QR BUTTON (triggers TPAP QR logic)
-                    OutlinedButton(
-                        onClick = onScanQrClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = BharatBlue
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.5.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Scan QR for Statement",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
+                    // SCAN QR BUTTON (hidden when launched via QR scan)
+                    if (qrPayload == null) {
+                        OutlinedButton(
+                            onClick = onScanQrClick,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = BharatBlue
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Scan QR for Statement",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
