@@ -103,9 +103,17 @@ fun AppNavigation() {
 // --- Screens ---
 @Composable
 fun HomeScreen(navController: NavController) {
+    val context = LocalContext.current
+    
     Scaffold(
-        topBar = { CloneTopBar() },
-        bottomBar = { CloneBottomNav() },
+        topBar = { CloneTopBar(onQrScanClick = {
+            val intent = Intent(context, QrScanActivity::class.java)
+            context.startActivity(intent)
+        }) },
+        bottomBar = { CloneBottomNav(onQrScanClick = {
+            val intent = Intent(context, QrScanActivity::class.java)
+            context.startActivity(intent)
+        }) },
         containerColor = Color.White
     ) { innerPadding ->
         Column(
@@ -164,16 +172,16 @@ fun BillPaymentScreen(navController: NavController, type: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CloneTopBar() {
+fun CloneTopBar(onQrScanClick: () -> Unit = {}) {
     TopAppBar(
         title = {
             Column {
-                Text("TPApp", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("BBPS COU", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text("Add Address ▼", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
             }
         },
         actions = {
-            IconButton(onClick = {}) { Icon(Icons.Default.QrCodeScanner, "Scan", tint = Color.White) }
+            IconButton(onClick = onQrScanClick) { Icon(Icons.Default.QrCodeScanner, "Scan", tint = Color.White) }
             IconButton(onClick = {}) { Icon(Icons.Default.Notifications, "Notify", tint = Color.White) }
             IconButton(onClick = {}) { Icon(Icons.Default.HelpOutline, "Help", tint = Color.White) }
         },
@@ -276,7 +284,7 @@ fun OfferSlider() {
 }
 
 @Composable
-fun CloneBottomNav() {
+fun CloneBottomNav(onQrScanClick: () -> Unit = {}) {
     NavigationBar(containerColor = Color.White, tonalElevation = 8.dp) {
         NavigationBarItem(
             icon = { Icon(Icons.Default.Home, null) },
@@ -296,7 +304,7 @@ fun CloneBottomNav() {
             icon = { Icon(Icons.Default.QrCodeScanner, null) },
             label = { Text("Scan", fontSize = 10.sp) },
             selected = false,
-            onClick = {},
+            onClick = onQrScanClick,
             colors = NavigationBarItemDefaults.colors(selectedIconColor = Color.Gray)
         )
         NavigationBarItem(

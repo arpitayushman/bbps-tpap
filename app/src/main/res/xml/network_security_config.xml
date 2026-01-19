@@ -18,9 +18,8 @@
     </domain-config>
     -->
     
-    <!-- For AWS with HTTP (if using load balancer without HTTPS), add:
+    <!-- AWS with HTTP (EC2 instance without HTTPS) -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">your-ec2-ip-or-domain</domain>
+        <domain includeSubdomains="true">ec2-13-233-55-238.ap-south-1.compute.amazonaws.com</domain>
     </domain-config>
-    -->
 </network-security-config>
