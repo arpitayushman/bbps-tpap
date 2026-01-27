@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,12 +19,15 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+// import androidx.compose.material.ripple.rememberRipple // Removed deprecated import
+import androidx.compose.material3.ripple // Added new M3 ripple import
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -62,6 +67,13 @@ import org.npci.bbps.tpap.util.QrIntentContract
 val BharatBlue = Color(0xFF1976D2) // Primary blue matching Bharat Connect
 val BharatLightBlue = Color(0xFF2196F3) // Lighter blue accent
 val BgGray = Color(0xFFF1F3F6)
+
+// --- Data Models ---
+data class BankOption(
+    val name: String,
+    val icon: ImageVector,
+    val isPopular: Boolean = false
+)
 
 class MainActivity : ComponentActivity() {
     private val latestQrPayload = mutableStateOf<QrPaymentPayload?>(null)
@@ -117,6 +129,13 @@ fun AppNavigation(qrPayload: QrPaymentPayload? = null) {
             val name = backStackEntry.arguments?.getString("billerName")?.replace("_", " ") ?: "Biller"
             BillerDetailsScreen(navController, name)
         }
+
+        // --- NEW ROUTE FOR CREDIT CARD DETAILS ---
+        composable("credit_card_details/{bankName}") { backStackEntry ->
+            val name = backStackEntry.arguments?.getString("bankName")?.replace("_", " ") ?: "HDFC Bank"
+            CreditCardDetailsScreen(navController, name)
+        }
+
         composable("payment_screen/{billerName}/{consumerNumber}") { backStackEntry ->
             val billerName = backStackEntry.arguments?.getString("billerName")?.replace("_", " ") ?: "Biller"
             val consumerNumber = backStackEntry.arguments?.getString("consumerNumber") ?: ""
@@ -158,7 +177,7 @@ private fun extractQrPaymentPayload(intent: Intent?): QrPaymentPayload? {
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
-    
+
     Scaffold(
         topBar = { CloneTopBar(onQrScanClick = {
             val intent = Intent(context, QrScanActivity::class.java)
@@ -199,30 +218,627 @@ fun HomeScreen(navController: NavController) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BillPaymentScreen(navController: NavController, type: String) {
-    if (type == "Electricity") {
-        ElectricityScreen(navController)
-    } else {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Pay $type", color = Color.White) },
-                    navigationIcon = {
-                        IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = BharatBlue)
-                )
-            }
-        ) { p ->
-            Box(modifier = Modifier.padding(p).fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Design for $type coming soon...", color = Color.Gray)
+    when (type) {
+        "Electricity" -> ElectricityScreen(navController)
+        "Credit Card" -> CreditCardScreen(navController)
+        else -> {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Pay $type", color = Color.White) },
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = BharatBlue)
+                    )
+                }
+            ) { p ->
+                Box(modifier = Modifier.padding(p).fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Design for $type coming soon...", color = Color.Gray)
+                }
             }
         }
     }
 }
 
-// --- Components ---
+// =========================================
+// CREDIT CARD SCREEN
+// =========================================
+
+@Composable
+fun CreditCardScreen(navController: NavController) {
+    // State for search and UI
+    var searchQuery by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // Simulated Data Source
+    val allBanks = remember {
+        listOf(
+            BankOption("HDFC Bank Credit Card", Icons.Default.AccountBalance, true),
+            BankOption("Axis Bank Credit Card", Icons.Default.AccountBalance, true),
+            BankOption("SBI Credit Card", Icons.Default.AccountBalance, true),
+            BankOption("ICICI Bank Credit Card", Icons.Default.AccountBalance, true),
+            BankOption("Kotak Mahindra Bank", Icons.Default.AccountBalance, true),
+            BankOption("RBL Bank Credit Card", Icons.Default.AccountBalance, true),
+            BankOption("American Express", Icons.Default.CreditCard),
+            BankOption("AU Small Finance Bank", Icons.Default.AccountBalance),
+            BankOption("Bank of Baroda", Icons.Default.AccountBalance),
+            BankOption("Canara Bank", Icons.Default.AccountBalance),
+            BankOption("Citi Bank", Icons.Default.AccountBalance),
+            BankOption("Dhanlaxmi Bank", Icons.Default.AccountBalance),
+            BankOption("Federal Bank", Icons.Default.AccountBalance),
+            BankOption("IDFC FIRST Bank", Icons.Default.AccountBalance),
+            BankOption("IndusInd Bank", Icons.Default.AccountBalance),
+            BankOption("Punjab National Bank", Icons.Default.AccountBalance),
+            BankOption("Standard Chartered", Icons.Default.AccountBalance),
+            BankOption("Union Bank of India", Icons.Default.AccountBalance),
+            BankOption("Yes Bank", Icons.Default.AccountBalance)
+        )
+    }
+
+    // Filter Logic
+    val filteredBanks = remember(searchQuery, allBanks) {
+        if (searchQuery.isBlank()) allBanks
+        else allBanks.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val popularBanks = remember(filteredBanks) {
+        filteredBanks.filter { it.isPopular }.take(6) // Limit to top 6 for grid
+    }
+
+    // Simulate Network Loading
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(800) // 800ms fake load
+        isLoading = false
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BharatBlue)
+    ) {
+        // --- Header with Functional Search ---
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
+        ) {
+            // Top Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, bottom = 8.dp, start = 8.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { navController.popBackStack() }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Navigate Back",
+                        tint = Color.White
+                    )
+                }
+                Text(
+                    text = "Pay Credit Card Bill",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Try to use resource, fallback to text if needed
+                Image(
+                    painter = painterResource(id = R.drawable.bharat_connect_text),
+                    contentDescription = "Bharat Connect",
+                    modifier = Modifier.height(18.dp),
+                    colorFilter = ColorFilter.tint(Color.White)
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+                Icon(
+                    imageVector = Icons.Default.HelpOutline,
+                    contentDescription = "Help",
+                    tint = Color.White
+                )
+            }
+
+            // Functional Search Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .height(50.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = Color.Black,
+                        fontSize = 14.sp
+                    ),
+                    cursorBrush = SolidColor(BharatBlue),
+                    modifier = Modifier.fillMaxWidth(),
+                    decorationBox = { innerTextField ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search by bank name",
+                                        color = Color.Gray,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { searchQuery = "" },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear Search",
+                                        tint = Color.Gray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
+        // --- Content Area ---
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = BgGray
+        ) {
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = BharatBlue)
+                }
+            } else if (filteredBanks.isEmpty()) {
+                // Empty State
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SearchOff,
+                        contentDescription = null,
+                        tint = Color.Gray,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("No banks found for '$searchQuery'", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // 1. Popular Banks Section (Only show if search is empty or matches found)
+                    if (popularBanks.isNotEmpty()) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        "Popular banks",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.padding(bottom = 16.dp)
+                                    )
+
+                                    // Dynamic Grid Logic
+                                    val rows = popularBanks.chunked(3)
+                                    rows.forEachIndexed { index, rowItems ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            // Fill gaps if row has less than 3 items
+                                            for (i in 0 until 3) {
+                                                if (i < rowItems.size) {
+                                                    val bank = rowItems[i]
+                                                    PopularBankItem(
+                                                        name = bank.name,
+                                                        icon = bank.icon,
+                                                        onClick = {
+                                                            val encoded = bank.name.replace(" ", "_")
+                                                            // Navigate to Credit Card Details
+                                                            navController.navigate("credit_card_details/$encoded")
+                                                        }
+                                                    )
+                                                } else {
+                                                    Spacer(modifier = Modifier.width(85.dp)) // Placeholder
+                                                }
+                                            }
+                                        }
+                                        if (index < rows.size - 1) Spacer(modifier = Modifier.height(20.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. All Banks Section
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    "All banks",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+                                HorizontalDivider(thickness = 0.5.dp, color = Color.LightGray)
+
+                                filteredBanks.forEach { bank ->
+                                    AllBankListItem(
+                                        name = bank.name,
+                                        onClick = {
+                                            val encoded = bank.name.replace(" ", "_")
+                                            // Navigate to Credit Card Details
+                                            navController.navigate("credit_card_details/$encoded")
+                                        }
+                                    )
+                                    HorizontalDivider(
+                                        thickness = 0.5.dp,
+                                        color = Color.LightGray.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// CREDIT CARD DETAILS SCREEN (NEW)
+
+
+@Composable
+fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
+    // State for inputs
+    var lastFourDigits by remember { mutableStateOf("") }
+    var mobileNumber by remember { mutableStateOf("123456789") }
+    var isConsentGiven by remember { mutableStateOf(true) }
+
+    Scaffold(
+        topBar = {
+            // --- Custom Blue Header ---
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BharatBlue)
+                    .padding(16.dp)
+            ) {
+                // Top Row: Back & Help
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("HELP", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = "Help",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Bank Info Row
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // White logo box
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = bankName.take(4).uppercase(),
+                            color = BharatBlue,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = bankName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        Text(
+                            text = "Bill Payments",
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        },
+        bottomBar = {
+            Button(
+                onClick = { /* Handle Payment Logic */ },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .height(55.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BharatBlue),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+            }
+        },
+        containerColor = BgGray
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            // --- Input Card ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+
+                    // 1. Last 4 Digits Input
+                    Text("Last 4 digits of Credit Card", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // The unique "Dots + Text" input field
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .background(Color(0xFFF9F9F9), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Grey Dots (Visual only)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            repeat(3) { group ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    repeat(4) {
+                                        Box(Modifier.size(6.dp).background(Color.LightGray, CircleShape))
+                                    }
+                                }
+                                if (group < 2) Spacer(modifier = Modifier.width(8.dp))
+                            }
+                        }
+
+                        VerticalDivider(
+                            modifier = Modifier.height(24.dp).padding(horizontal = 12.dp),
+                            color = Color.LightGray
+                        )
+
+                        // Actual Input
+                        BasicTextField(
+                            value = lastFourDigits,
+                            onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) lastFourDigits = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black,
+                                letterSpacing = 3.sp,
+                                textAlign = TextAlign.Center
+                            ),
+                            singleLine = true,
+                            modifier = Modifier.width(60.dp),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (lastFourDigits.isEmpty()) {
+                                        Text("0000", color = Color.LightGray.copy(alpha = 0.5f), fontSize = 18.sp, letterSpacing = 3.sp)
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // 2. Mobile Number
+                    Text("Mobile Number (Linked to credit card)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = mobileNumber,
+                        onValueChange = { mobileNumber = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = Color.White,
+                            focusedContainerColor = Color.White,
+                            unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f),
+                            focusedBorderColor = BharatBlue
+                        ),
+                        trailingIcon = {
+                            Icon(Icons.Default.PermContactCalendar, null, tint = Color(0xFF9C27B0))
+                        }
+                    )
+                }
+            }
+
+            // --- Consent Card ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Checkbox(
+                        checked = isConsentGiven,
+                        onCheckedChange = { isConsentGiven = it },
+                        colors = CheckboxDefaults.colors(checkedColor = BharatBlue),
+                        modifier = Modifier.size(20.dp).padding(top = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("Bharat Connect", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "By proceeding further, you allow BharatConnect to  fetch current and future bills, and send you reminders.",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+// --- Helper Components (Credit Card) ---
+
+@Composable
+fun PopularBankItem(name: String, icon: ImageVector, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(85.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = false, color = BharatBlue),
+                onClick = onClick
+            )
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(50.dp)
+                .border(1.dp, Color.LightGray.copy(alpha = 0.5f), CircleShape)
+                .clip(CircleShape)
+                .background(Color.White)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = "$name logo",
+                tint = BharatBlue.copy(alpha = 0.8f),
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = name,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            lineHeight = 14.sp,
+            color = Color.Black,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun AllBankListItem(name: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Logo Placeholder
+        Box(
+            modifier = Modifier
+                .size(40.dp) // Increased size slightly
+                .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = name.take(1),
+                fontWeight = FontWeight.Bold,
+                color = BharatBlue,
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp))
+
+        Text(
+            text = name,
+            fontSize = 14.sp,
+            color = Color.Black,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Chevron for affordance
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = Color.LightGray
+        )
+    }
+}
+
+
+// --- Components (General) ---
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
