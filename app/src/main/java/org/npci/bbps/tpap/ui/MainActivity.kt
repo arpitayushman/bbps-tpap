@@ -530,7 +530,7 @@ fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
     var lastFourDigits by remember { mutableStateOf("") }
     var mobileNumber by remember { mutableStateOf("123456789") }
     var isConsentGiven by remember { mutableStateOf(true) }
-
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             // --- Custom Blue Header ---
@@ -604,7 +604,15 @@ fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
         },
         bottomBar = {
             Button(
-                onClick = { /* Handle Payment Logic */ },
+                onClick = {
+                    // Trigger the new Activity
+                    val intent = Intent(context, CallableUI::class.java).apply {
+                        // Pass the bank name and last 4 digits to the new screen
+                        putExtra("BANK_NAME", bankName)
+                        putExtra("LAST_FOUR", lastFourDigits)
+                    }
+                    context.startActivity(intent)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
