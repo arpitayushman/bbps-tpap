@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';">
+    <title>BBPS Secure Statement</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash-screen" class="screen active">
+        <div class="splash-container">
+            <!-- Bharat Connect Logo Container (White Circle) -->
+            <div class="logo-circle-container">
+                <div class="logo-circle">
+                    <img src="Bharat Connect Primary Logo_PNG.png" alt="Bharat Connect Logo" class="splash-logo" onerror="this.style.display='none';">
+                </div>
+            </div>
+            
+            <div class="splash-spacer"></div>
+            
+            <!-- Bharat Connect Text -->
+            <h1 class="splash-title">Bharat Connect</h1>
+            <p class="splash-subtitle">Bharat Bill Payment System</p>
+            
+            <div class="splash-spacer-large"></div>
+            
+            <!-- Security Badge -->
+            <div class="security-badge">
+                <span class="security-icon-badge">🛡️</span>
+                <span>Secure Statement Viewer</span>
+            </div>
+            
+            <div class="splash-spacer-large"></div>
+            
+            <!-- Loading indicator -->
+            <div class="loading-spinner-white"></div>
+            
+            <div class="splash-spacer-small"></div>
+            
+            <p class="loading-text">Decrypting secure data...</p>
+        </div>
+    </div>
+
+    <!-- Error Screen -->
+    <div id="error-screen" class="screen">
+        <div class="error-container">
+            <div class="error-icon">⚠️</div>
+            <h2>Unable to Open</h2>
+            <p id="error-message" class="error-message"></p>
+            <button id="error-close-btn" class="btn-primary">Close</button>
+        </div>
+    </div>
+
+    <!-- Bill Statement Screen -->
+    <div id="bill-statement-screen" class="screen">
+        <div class="header">
+            <div class="header-content">
+                <img src="Bharat Connect Primary Logo_PNG.png" alt="Bharat Connect Logo" class="header-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                <div class="logo-text-fallback" style="display: none; font-size: 18px; font-weight: bold; color: white;">Bharat Connect</div>
+                <div class="header-title">Bill Statement</div>
+            </div>
+            <div class="secure-badge">
+                <span class="secure-icon-svg">🛡️</span>
+                <span>Secure</span>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="amount-card gradient-blue">
+                <div class="amount-label">Amount Due</div>
+                <div class="amount-value" id="bill-amount">₹0.00</div>
+                <div class="due-date-badge" id="bill-due-date">Due Date: --</div>
+                <div class="amount-card-divider"></div>
+                <div class="amount-card-footer">
+                    <div class="footer-item">
+                        <div class="footer-label">BILLER NAME</div>
+                        <div class="footer-value" id="bill-biller-name">--</div>
+                    </div>
+                    <div class="footer-item">
+                        <div class="footer-label">UNITS CONSUMED</div>
+                        <div class="footer-value" id="bill-units">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <span class="info-icon">📈</span>
+                    <h3>Past 3 Month Consumption</h3>
+                </div>
+                <div class="info-card-content">
+                    <div class="info-row">
+                        <span class="info-label">Monthly Average Units</span>
+                        <span class="info-value" id="bill-avg-units">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Highest Consumption Month</span>
+                        <span class="info-value" id="bill-highest-month">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Highest Consumption Unit</span>
+                        <span class="info-value" id="bill-highest-unit">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <span class="info-icon">🏢</span>
+                    <h3>Biller Information</h3>
+                </div>
+                <div class="info-card-content">
+                    <div class="info-row">
+                        <span class="info-label">Biller ID</span>
+                        <span class="info-value" id="bill-biller-id">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Biller Name</span>
+                        <span class="info-value" id="bill-biller-name-info">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Tariff Rate</span>
+                        <span class="info-value" id="bill-tariff">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <span class="info-icon">👤</span>
+                    <h3>Consumer Information</h3>
+                </div>
+                <div class="info-card-content">
+                    <div class="info-row">
+                        <span class="info-label">Consumer Name</span>
+                        <span class="info-value" id="bill-consumer-name">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Consumer Number</span>
+                        <span class="info-value" id="bill-consumer-number">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-section">
+                <div class="secured-footer">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="shield-icon-footer">🛡️</span>
+                        <span>Secured by Bharat Connect</span>
+                    </div>
+                    <p class="footer-subtitle">This is a read-only secure statement</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payment History Screen -->
+    <div id="payment-history-screen" class="screen">
+        <div class="header">
+            <div class="header-content">
+                <img src="Bharat Connect Primary Logo_PNG.png" alt="Bharat Connect Logo" class="header-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                <div class="logo-text-fallback" style="display: none; font-size: 18px; font-weight: bold; color: white;">Bharat Connect</div>
+                <div class="header-title">Payment History</div>
+            </div>
+            <div class="secure-badge">
+                <span class="secure-icon-svg">🛡️</span>
+                <span>Secure</span>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="amount-card gradient-blue" id="payment-last-payment-card">
+                <div class="amount-label">Last Payment</div>
+                <div class="amount-value" id="payment-last-amount">₹0.00</div>
+                <div class="due-date-badge" id="payment-last-date">Paid On: --</div>
+                <div class="amount-card-divider"></div>
+                <div class="amount-card-footer">
+                    <div class="footer-item">
+                        <div class="footer-label">BILLER NAME</div>
+                        <div class="footer-value" id="payment-biller-name">--</div>
+                    </div>
+                    <div class="footer-item">
+                        <div class="footer-label">UNITS CONSUMED</div>
+                        <div class="footer-value" id="payment-units">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <span class="info-icon">💳</span>
+                    <h3>Payments</h3>
+                </div>
+                <div class="info-card-content" id="payment-list">
+                    <!-- Payment items will be inserted here -->
+                </div>
+            </div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <span class="info-icon">👤</span>
+                    <h3>Consumer Information</h3>
+                </div>
+                <div class="info-card-content">
+                    <div class="info-row">
+                        <span class="info-label">Consumer Name</span>
+                        <span class="info-value" id="payment-consumer-name">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Consumer Number</span>
+                        <span class="info-value" id="payment-consumer-number">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <span class="info-icon">🏢</span>
+                    <h3>Biller Information</h3>
+                </div>
+                <div class="info-card-content">
+                    <div class="info-row">
+                        <span class="info-label">Biller ID</span>
+                        <span class="info-value" id="payment-biller-id">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Biller Name</span>
+                        <span class="info-value" id="payment-biller-name-info">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Units Consumed</span>
+                        <span class="info-value" id="payment-units-info">--</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Statement ID</span>
+                        <span class="info-value" id="payment-statement-id">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-section">
+                <div class="secured-footer">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span class="shield-icon-footer">🛡️</span>
+                        <span>Secured by Bharat Connect</span>
+                    </div>
+                    <p class="footer-subtitle">This is a read-only secure statement</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/models.js"></script>
+    <script src="js/crypto.js"></script>
+    <script src="js/crypto-wasm.js"></script>
+    <script src="js/security.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,484 @@
+/**
+ * BBPS Bundle Styles
+ * Matching the design from Kotlin Compose UI
+ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #F5F7FA;
+    color: #1F2937;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.screen {
+    display: none !important;
+    min-height: 100vh;
+    width: 100%;
+}
+
+.screen.active {
+    display: block !important;
+}
+
+/* Splash Screen - Matching Kotlin app exactly */
+#splash-screen.active {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, #1E3A8A 0%, #3B82F6 50%, #60A5FA 100%);
+    min-height: 100vh;
+}
+
+.splash-container {
+    text-align: center;
+    color: white;
+    padding: 32px;
+    width: 100%;
+    max-width: 100%;
+}
+
+/* Logo Circle Container */
+.logo-circle-container {
+    margin-bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.logo-circle {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background-color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    animation: fadeIn 1s ease-in;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.splash-logo {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.splash-spacer {
+    height: 32px;
+}
+
+.splash-spacer-large {
+    height: 64px;
+}
+
+.splash-spacer-small {
+    height: 24px;
+}
+
+.splash-title {
+    font-size: 34px;
+    font-weight: bold;
+    color: white;
+    margin: 0;
+    padding: 0;
+    animation: fadeIn 1s ease-in;
+}
+
+.splash-subtitle {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 8px 0 0 0;
+    padding: 0;
+    animation: fadeIn 1s ease-in;
+}
+
+/* Security Badge */
+.security-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 12px 20px;
+    color: white;
+    font-size: 16px;
+    font-weight: 500;
+    animation: fadeIn 1s ease-in;
+}
+
+.security-icon-badge {
+    font-size: 20px;
+}
+
+/* Loading Spinner (White) */
+.loading-spinner-white {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+    animation: fadeIn 1s ease-in, spin 1s linear infinite;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-text {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8);
+    margin: 0;
+    padding: 0;
+    animation: fadeIn 1s ease-in;
+}
+
+/* Error Screen */
+#error-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.error-container {
+    max-width: 400px;
+    text-align: center;
+    background: white;
+    border-radius: 16px;
+    padding: 40px 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.error-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+.error-container h2 {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1F2937;
+    margin-bottom: 16px;
+}
+
+.error-message {
+    font-size: 16px;
+    color: #6B7280;
+    line-height: 1.6;
+    white-space: pre-line;
+    margin-bottom: 30px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+    color: white;
+    border: none;
+    padding: 12px 32px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.btn-primary:active {
+    opacity: 0.8;
+}
+
+/* Header - Matching Kotlin app exactly */
+.header {
+    background-color: #1E3A8A;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.1);
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-logo {
+    height: 32px;
+    max-width: 200px;
+    object-fit: contain;
+    display: inline-block;
+}
+
+.logo-text-fallback {
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+}
+
+.header-title {
+    font-size: 16px;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+}
+
+.secure-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.secure-icon-svg {
+    font-size: 18px;
+    color: #10B981;
+}
+
+/* Content */
+.content {
+    padding: 16px 20px;
+    padding-bottom: 32px;
+}
+
+/* Amount Card */
+.amount-card {
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    color: white;
+}
+
+.gradient-blue {
+    background: linear-gradient(180deg, #5B9FD8 0%, #4A8EC8 100%);
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.1);
+}
+
+.amount-label {
+    font-size: 16px;
+    font-weight: normal;
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.amount-value {
+    font-size: 48px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.due-date-badge {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 6px 16px;
+    font-size: 14px;
+    text-align: center;
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 24px;
+}
+
+.amount-card-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.3);
+    margin-bottom: 16px;
+}
+
+.amount-card-footer {
+    display: flex;
+    justify-content: space-between;
+}
+
+.footer-item {
+    flex: 1;
+}
+
+.footer-label {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-bottom: 4px;
+}
+
+.footer-value {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* Info Cards */
+.info-card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.info-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #E5E7EB;
+}
+
+.info-icon {
+    font-size: 24px;
+    color: #3B82F6;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.info-card-header h3 {
+    font-size: 18px;
+    font-weight: bold;
+    color: #1E3A8A;
+    margin: 0;
+}
+
+.info-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.info-label {
+    font-size: 14px;
+    color: #6B7280;
+    flex: 1;
+}
+
+.info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1F2937;
+    text-align: right;
+}
+
+/* Payment Items */
+.payment-item {
+    margin-bottom: 16px;
+}
+
+.payment-item:last-child {
+    margin-bottom: 0;
+}
+
+.payment-item-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.payment-item-left {
+    flex: 1;
+}
+
+.payment-date {
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 8px;
+}
+
+.payment-details {
+    font-size: 14px;
+    color: #6B7280;
+    line-height: 1.6;
+}
+
+.payment-details > div {
+    margin-bottom: 4px;
+}
+
+.payment-item-right {
+    text-align: right;
+}
+
+.payment-amount {
+    font-size: 18px;
+    font-weight: bold;
+    color: #111827;
+}
+
+.payment-divider {
+    height: 1px;
+    background: #E5E7EB;
+    margin: 16px 0;
+}
+
+/* Footer Section */
+.footer-section {
+    margin-top: 24px;
+}
+
+.secured-footer {
+    background: #F9FAFB;
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #6B7280;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.shield-icon-footer {
+    font-size: 20px;
+    color: #10B981;
+    display: inline-block;
+}
+
+.footer-subtitle {
+    font-size: 14px;
+    color: #9CA3AF;
+    margin: 8px 0 0 0;
+    padding: 0;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .amount-value {
+        font-size: 40px;
+    }
+    
+    .content {
+        padding: 16px;
+    }
+}

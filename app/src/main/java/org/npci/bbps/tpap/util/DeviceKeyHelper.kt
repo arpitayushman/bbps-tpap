@@ -1,29 +1,23 @@
 package org.npci.bbps.tpap.util
 
-import android.content.BroadcastReceiver
-import android.content.ContentResolver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.database.Cursor
-import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 /**
- * Helper to get device public key from callable app via ContentProvider
- * This allows TPAP app to register the device using the callable app's public key
+ * Helper to get device public key (DEPRECATED)
+ * 
+ * NOTE: This helper is no longer needed for the main flow.
+ * The Secure Runtime Bundle now handles all key generation and device registration automatically.
+ * This class is kept for backward compatibility only.
+ * 
+ * For new integrations, simply:
+ * 1. Pass encrypted data to StatementWebViewActivity
+ * 2. The Secure Runtime Bundle will automatically handle key generation and device registration
  */
 object DeviceKeyHelper {
 
-    private const val AUTHORITY = "org.npci.bbps.callableui.provider"
+    // Keep these for backward compatibility checks (optional)
     private const val CALLABLE_APP_PACKAGE = "org.npci.bbps.callableui"
-    private const val PUBLIC_KEY_PATH = "/publicKey"
-    private val CONTENT_URI = Uri.parse("content://$AUTHORITY$PUBLIC_KEY_PATH")
 
     /**
      * Debug helper: List all installed packages containing "callable" or "bbps"
@@ -54,9 +48,14 @@ object DeviceKeyHelper {
     }
 
     /**
-     * Check if callable app is installed
+     * Check if callable app is installed (for backward compatibility)
+     * Note: This is no longer required since we use KeystoreManager directly
+     * @return Always returns true since we don't need the callable app anymore
      */
     fun isCallableAppInstalled(packageManager: PackageManager): Boolean {
+        // No longer needed - we use KeystoreManager directly
+        // Keep for backward compatibility
+        return true
         // First, list all matching packages for debugging
         val matchingPackages = listInstalledPackages(packageManager)
         Log.d("DeviceKeyHelper", "=== DEBUG: Checking for callable app ===")
@@ -104,141 +103,36 @@ object DeviceKeyHelper {
     }
 
     /**
-     * Get the device public key from the callable app
-     * Tries ContentProvider first (works even if app not running), then BroadcastReceiver as fallback
-     * @return Base64 encoded public key, or null if unavailable
+     * Get the device public key from Secure Runtime Bundle (stored in SharedPreferences)
+     * The Secure Runtime Bundle generates and manages its own key pair
+     * 
+     * IMPORTANT: On first run, the Secure Runtime Bundle may not have initialized yet.
+     * In that case, this will return null and the caller should initialize the bundle first.
+     * 
+     * @return Base64 encoded public key in SPKI format, or null if unavailable
      */
-    fun getPublicKey(context: Context): String? {
-        // Try ContentProvider first (more reliable, works even if app not running)
-        val contentProviderKey = getPublicKeyFromContentProvider(context.contentResolver)
-        if (contentProviderKey != null) {
-            return contentProviderKey
+    fun getPublicKey(context: android.content.Context? = null): String? {
+        if (context == null) {
+            Log.e("DeviceKeyHelper", "Context is required to get public key from Secure Runtime Bundle")
+            return null
         }
         
-        // Fallback to BroadcastReceiver
-        Log.d("DeviceKeyHelper", "ContentProvider failed, trying BroadcastReceiver...")
         return try {
-            var publicKey: String? = null
-            val lock = Object()
-            var received = false
+            // Get public key from SharedPreferences (stored by Secure Runtime Bundle)
+            val prefs = context.getSharedPreferences("bbps_secure_runtime", android.content.Context.MODE_PRIVATE)
+            val publicKey = prefs.getString("device_public_key_spki", null)
             
-            // Register receiver for response
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context, intent: Intent) {
-                    if (intent.action == "org.npci.bbps.callableui.PUBLIC_KEY_RESPONSE") {
-                        val receivedKey = intent.getStringExtra("publicKey")
-                        if (!receivedKey.isNullOrBlank()) {
-                            publicKey = receivedKey
-                            Log.d("DeviceKeyHelper", "✓ Received public key via BroadcastReceiver (length: ${publicKey?.length ?: 0})")
-                        }
-                        synchronized(lock) {
-                            received = true
-                            lock.notifyAll()
-                        }
-                    }
-                }
-            }
-            
-            val filter = IntentFilter("org.npci.bbps.callableui.PUBLIC_KEY_RESPONSE")
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            if (publicKey != null) {
+                Log.d("DeviceKeyHelper", "✓ Successfully retrieved public key from Secure Runtime Bundle (length: ${publicKey.length})")
+                publicKey
             } else {
-                context.registerReceiver(receiver, filter)
+                Log.w("DeviceKeyHelper", "Public key not found in SharedPreferences. Secure Runtime Bundle has not initialized yet.")
+                Log.w("DeviceKeyHelper", "The bundle will initialize when StatementWebViewActivity loads, but device registration may fail on first run.")
+                Log.w("DeviceKeyHelper", "Consider initializing the bundle early or handling registration after bundle initialization.")
+                null
             }
-            
-            try {
-                // Send request broadcast
-                val requestIntent = Intent("org.npci.bbps.tpap.REQUEST_PUBLIC_KEY").apply {
-                    setPackage("org.npci.bbps.callableui")
-                    addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-                }
-                context.sendBroadcast(requestIntent, null)
-                Log.d("DeviceKeyHelper", "Sent broadcast request to callable app")
-                
-                // Wait for response (max 3 seconds)
-                synchronized(lock) {
-                    if (!received) {
-                        lock.wait(3000)
-                    }
-                }
-            } finally {
-                try {
-                    context.unregisterReceiver(receiver)
-                } catch (e: Exception) {
-                    // Ignore if already unregistered
-                }
-            }
-            
-            publicKey
         } catch (e: Exception) {
-            Log.e("DeviceKeyHelper", "Error getting public key via BroadcastReceiver", e)
-            null
-        }
-    }
-
-    /**
-     * Get the device public key from the callable app's ContentProvider (fallback method)
-     * @return Base64 encoded public key, or null if unavailable
-     */
-    private fun getPublicKeyFromContentProvider(contentResolver: ContentResolver): String? {
-        return try {
-            Log.d("DeviceKeyHelper", "Querying ContentProvider: $CONTENT_URI")
-            Log.d("DeviceKeyHelper", "Authority: $AUTHORITY, Path: $PUBLIC_KEY_PATH")
-            
-            // Try querying the ContentProvider
-            val cursor: Cursor? = try {
-                contentResolver.query(
-                    CONTENT_URI,
-                    arrayOf("publicKey"),
-                    null,
-                    null,
-                    null
-                )
-            } catch (e: IllegalArgumentException) {
-                // This usually means the ContentProvider authority is not found
-                Log.e("DeviceKeyHelper", "IllegalArgumentException: ContentProvider authority not found", e)
-                Log.e("DeviceKeyHelper", "URI: $CONTENT_URI")
-                Log.e("DeviceKeyHelper", "This usually means:")
-                Log.e("DeviceKeyHelper", "1. The callable app is not installed")
-                Log.e("DeviceKeyHelper", "2. The ContentProvider is not registered in the manifest")
-                Log.e("DeviceKeyHelper", "3. The app needs to be restarted/reinstalled")
-                return null
-            } catch (e: SecurityException) {
-                Log.e("DeviceKeyHelper", "SecurityException: Permission denied", e)
-                return null
-            }
-
-            if (cursor == null) {
-                Log.e("DeviceKeyHelper", "ContentProvider query returned null cursor")
-                Log.e("DeviceKeyHelper", "The ContentProvider might not be accessible")
-                return null
-            }
-
-            cursor.use {
-                if (it.moveToFirst()) {
-                    val columnIndex = it.getColumnIndex("publicKey")
-                    if (columnIndex >= 0) {
-                        val publicKey = it.getString(columnIndex)
-                        if (publicKey.isNullOrBlank()) {
-                            Log.e("DeviceKeyHelper", "Public key is null or blank")
-                            return null
-                        }
-                        Log.d("DeviceKeyHelper", "✓ Successfully retrieved public key (length: ${publicKey.length})")
-                        return publicKey
-                    } else {
-                        Log.e("DeviceKeyHelper", "Column 'publicKey' not found in cursor")
-                        Log.e("DeviceKeyHelper", "Available columns: ${it.columnNames.joinToString()}")
-                    }
-                } else {
-                    Log.e("DeviceKeyHelper", "Cursor is empty - no rows returned")
-                }
-            }
-            
-            Log.w("DeviceKeyHelper", "No public key found in cursor")
-            null
-        } catch (e: Exception) {
-            Log.e("DeviceKeyHelper", "Unexpected error getting public key", e)
-            e.printStackTrace()
+            Log.e("DeviceKeyHelper", "Error getting public key from Secure Runtime Bundle", e)
             null
         }
     }

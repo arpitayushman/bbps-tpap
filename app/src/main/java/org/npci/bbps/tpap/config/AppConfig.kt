@@ -18,8 +18,8 @@ object AppConfig {
     // AWS Production (replace with your actual AWS backend URL)
     // For HTTPS: "https://your-api-domain.aws-region.amazonaws.com"
     // For HTTP: "http://your-ec2-ip:8111" or "http://your-alb-domain:8111"
-    private const val AWS_BACKEND_URL = "http://ec2-13-233-55-238.ap-south-1.compute.amazonaws.com:8111"
-    
+    private const val AWS_BACKEND_URL = "http://ec2-3-109-54-89.ap-south-1.compute.amazonaws.com:8111"
+
     // Current environment - Change this to switch between environments
     enum class Environment {
         LOCAL,      // Local development on your computer
@@ -28,7 +28,7 @@ object AppConfig {
     }
     
     // Set your current environment here
-    private val currentEnvironment = Environment.LOCAL;
+    private val currentEnvironment = Environment.AWS;
     
     /**
      * Get the backend base URL based on current environment
