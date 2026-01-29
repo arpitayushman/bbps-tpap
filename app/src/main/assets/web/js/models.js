@@ -18,6 +18,10 @@ class BillStatementModel {
         this.highestConsumptionUnit = data.highestConsumptionUnit || '';
         this.tariffRate = data.tariffRate || '';
         this.unitsConsumed = data.unitsConsumed || data.units_consumed || null;
+
+        // Optional: past spendings for credit card statements
+        // When present, this is an array of CreditCardTransaction
+        this.transactions = (data.transactions || []).map(t => new CreditCardTransaction(t));
     }
 }
 
@@ -42,5 +46,18 @@ class PaymentItem {
         this.status = data.status || '';
         this.mode = data.mode || '';
         this.paymentVia = data.paymentVia || null;
+    }
+}
+
+/**
+ * Credit card transaction model for past spendings
+ */
+class CreditCardTransaction {
+    constructor(data) {
+        this.date = data.date || '';
+        this.description = data.description || '';
+        this.amount = data.amount || '';
+        this.category = data.category || '';
+        this.merchant = data.merchant || '';
     }
 }

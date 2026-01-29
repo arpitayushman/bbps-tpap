@@ -10,7 +10,7 @@ object AppConfig {
     // Change these based on your deployment
     
     // Local development (computer's local IP)
-    private const val LOCAL_BACKEND_URL = "http://192.168.10.74:8111"
+    private const val LOCAL_BACKEND_URL = "http://172.20.10.8:8111"
     
     // Emulator (special Android emulator host)
     private const val EMULATOR_BACKEND_URL = "http://10.0.2.2:8111"

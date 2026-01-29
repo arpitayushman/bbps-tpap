@@ -63,6 +63,7 @@ import org.npci.bbps.tpap.model.EncryptedStatementResponse
 import org.npci.bbps.tpap.model.EncryptStatementRequest
 import org.npci.bbps.tpap.model.QrPaymentPayload
 import org.npci.bbps.tpap.network.BackendApi
+import org.npci.bbps.tpap.ui.StatementWebViewActivity
 import org.npci.bbps.tpap.util.QrIntentContract
 
 // --- Colors ---
@@ -528,10 +529,78 @@ fun CreditCardScreen(navController: NavController) {
 
 @Composable
 fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
     // State for inputs
     var lastFourDigits by remember { mutableStateOf("") }
     var mobileNumber by remember { mutableStateOf("123456789") }
     var isConsentGiven by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // Get device ID
+    val deviceId = remember {
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+    }
+    
+    // Credit card mini statement: try encrypt first; if device not registered, run registration and retry
+    val onCreditCardMiniStatementClick: () -> Unit = {
+        scope.launch {
+            isLoading = true
+            errorMessage = null
+            val baseUrl = AppConfig.baseUrl
+            val consumerId = AppConfig.consumerId
+            val request = EncryptStatementRequest(
+                statementId = AppConfig.statementId,
+                consumerId = consumerId,
+                deviceId = deviceId,
+                category = "CREDIT_CARD"
+            )
+            try {
+                var response: EncryptedStatementResponse? = null
+                try {
+                    response = withContext(Dispatchers.IO) {
+                        BackendApi.encryptBillStatement(baseUrl, request)
+                    }
+                } catch (e: Exception) {
+                    val isRegistrationFailure = e.message?.contains("500") == true ||
+                            e.message?.contains("No ACTIVE device key", ignoreCase = true) == true ||
+                            e.message?.contains("device key", ignoreCase = true) == true
+                    if (isRegistrationFailure) {
+                        Log.w("TPAP", "Credit card encrypt failed (no device key) - running registration fallback...")
+                        clearDeviceRegistration(context, deviceId, consumerId)
+                        val ok = registerDeviceSync(context, deviceId, baseUrl, consumerId)
+                        if (ok) {
+                            response = withContext(Dispatchers.IO) {
+                                BackendApi.encryptBillStatement(baseUrl, request)
+                            }
+                        } else {
+                            errorMessage = "Device registration failed. Please try again."
+                            return@launch
+                        }
+                    } else throw e
+                }
+                if (response == null) {
+                    errorMessage = "Failed to load credit card statement."
+                    return@launch
+                }
+                val intent = Intent(context, StatementWebViewActivity::class.java).apply {
+                    putExtra("encryptedPayload", response.encryptedPayload)
+                    putExtra("wrappedDek", response.wrappedDek)
+                    putExtra("iv", response.iv)
+                    putExtra("senderPublicKey", response.senderPublicKey)
+                    putExtra("payloadType", "BILL_STATEMENT")
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("TPAP", "Error in credit card mini statement flow", e)
+                errorMessage = "Failed to load credit card statement: ${e.message}"
+            } finally {
+                isLoading = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -606,7 +675,8 @@ fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
         },
         bottomBar = {
             Button(
-                onClick = { /* Handle Payment Logic */ },
+                onClick = onCreditCardMiniStatementClick,
+                enabled = !isLoading && lastFourDigits.length == 4 && isConsentGiven,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
@@ -614,6 +684,14 @@ fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
                 colors = ButtonDefaults.buttonColors(containerColor = BharatBlue),
                 shape = RoundedCornerShape(8.dp)
             ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Text("CONFIRM", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
             }
         },
@@ -749,6 +827,37 @@ fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
                     }
                 }
             }
+            
+            // Error message display
+            if (errorMessage != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Error,
+                            contentDescription = null,
+                            tint = Color(0xFFD32F2F),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = errorMessage!!,
+                            color = Color(0xFFD32F2F),
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+            
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -1276,6 +1385,121 @@ fun BillerDetailsScreen(navController: NavController, billerName: String) {
     }
 }
 
+// --- Top-level device registration helpers (used by PaymentScreen and CreditCardDetailsScreen) ---
+
+fun isDeviceRegistered(context: android.content.Context, deviceId: String, consumerId: String): Boolean {
+    val prefs = context.getSharedPreferences("bbps_device_registration", android.content.Context.MODE_PRIVATE)
+    val registrationKey = "registered_${consumerId}_${deviceId}"
+    val isRegistered = prefs.getBoolean(registrationKey, false)
+    Log.d("TPAP", "Device registration check: $registrationKey = $isRegistered")
+    return isRegistered
+}
+
+fun markDeviceAsRegistered(context: android.content.Context, deviceId: String, consumerId: String) {
+    val prefs = context.getSharedPreferences("bbps_device_registration", android.content.Context.MODE_PRIVATE)
+    val registrationKey = "registered_${consumerId}_${deviceId}"
+    prefs.edit().putBoolean(registrationKey, true).apply()
+    Log.d("TPAP", "Device marked as registered: $registrationKey")
+}
+
+fun clearDeviceRegistration(context: android.content.Context, deviceId: String, consumerId: String) {
+    val prefs = context.getSharedPreferences("bbps_device_registration", android.content.Context.MODE_PRIVATE)
+    val registrationKey = "registered_${consumerId}_${deviceId}"
+    prefs.edit().remove(registrationKey).apply()
+    Log.d("TPAP", "Device registration cleared: $registrationKey")
+}
+
+suspend fun registerDeviceSync(
+    context: android.content.Context,
+    deviceId: String,
+    baseUrl: String,
+    consumerId: String
+): Boolean = withContext(Dispatchers.Main) {
+    if (isDeviceRegistered(context, deviceId, consumerId)) {
+        Log.d("TPAP", "Device already registered, skipping registration")
+        return@withContext true
+    }
+    val registrationComplete = CompletableDeferred<Boolean>()
+    var webView: android.webkit.WebView? = null
+    try {
+        Log.d("TPAP", "Device not registered, initializing bundle for device registration...")
+        webView = android.webkit.WebView(context).apply {
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+            }
+            addJavascriptInterface(
+                object {
+                    @android.webkit.JavascriptInterface
+                    fun registerDevice(
+                        baseUrl: String,
+                        consumerId: String,
+                        deviceId: String,
+                        publicKeyBase64: String
+                    ): Boolean {
+                        return try {
+                            BackendApi.registerDevice(
+                                baseUrl = baseUrl,
+                                request = DeviceRegistrationRequest(
+                                    consumerId = consumerId,
+                                    deviceId = deviceId,
+                                    devicePublicKey = publicKeyBase64
+                                )
+                            )
+                            registrationComplete.complete(true)
+                            true
+                        } catch (e: Exception) {
+                            Log.e("TPAP", "✗ Device registration failed", e)
+                            registrationComplete.complete(false)
+                            false
+                        }
+                    }
+                    @android.webkit.JavascriptInterface
+                    fun getDeviceId(): String = deviceId
+                    @android.webkit.JavascriptInterface
+                    fun getBackendConfig(): String {
+                        return org.json.JSONObject().apply {
+                            put("baseUrl", baseUrl)
+                            put("consumerId", consumerId)
+                        }.toString()
+                    }
+                    @android.webkit.JavascriptInterface
+                    fun log(message: String) { Log.d("TPAP", "Bundle: $message") }
+                },
+                "Android"
+            )
+            webViewClient = object : android.webkit.WebViewClient() {
+                override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    view?.evaluateJavascript(
+                        """
+                        (async function() {
+                            try {
+                                if (window.BBPSBundle && window.BBPSBundle.ensureDeviceKeyPair) {
+                                    await window.BBPSBundle.ensureDeviceKeyPair();
+                                } else { Android.registerDevice('', '', '', ''); }
+                            } catch (e) { Android.registerDevice('', '', '', ''); }
+                        })();
+                        """.trimIndent(),
+                        null
+                    )
+                }
+            }
+        }
+        webView.loadUrl("file:///android_asset/web/index.html")
+        val success = withTimeoutOrNull(10000) { registrationComplete.await() } ?: false
+        if (success) markDeviceAsRegistered(context, deviceId, consumerId)
+        else Log.w("TPAP", "✗ Device registration timeout or failed")
+        return@withContext success
+    } catch (e: Exception) {
+        Log.e("TPAP", "Device registration error", e)
+        registrationComplete.complete(false)
+        return@withContext false
+    } finally {
+        webView?.destroy()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaymentScreen(
@@ -1313,298 +1537,65 @@ fun PaymentScreen(
         context.startActivity(intent)
     }
 
-    /**
-     * Ensure device is registered by initializing the bundle in a hidden WebView
-     * This ensures registration happens before encryption is attempted
-     */
-    suspend fun ensureDeviceRegistration(
-        context: android.content.Context,
-        deviceId: String,
-        baseUrl: String,
-        consumerId: String
-    ) = withContext(Dispatchers.Main) {
-        try {
-            // Initialize bundle in a hidden WebView to trigger registration
-            // The bundle will automatically register when it ensures the key pair
-            val hiddenWebView = android.webkit.WebView(context)
-            hiddenWebView.settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-            }
-            
-            var registrationComplete = false
-            
-            // Add JavaScript interface for registration
-            hiddenWebView.addJavascriptInterface(
-                object {
-                    @android.webkit.JavascriptInterface
-                    fun registerDevice(
-                        baseUrl: String,
-                        consumerId: String,
-                        deviceId: String,
-                        publicKeyBase64: String
-                    ): Boolean {
-                        return try {
-                            org.npci.bbps.tpap.network.BackendApi.registerDevice(
-                                baseUrl = baseUrl,
-                                request = org.npci.bbps.tpap.model.DeviceRegistrationRequest(
-                                    consumerId = consumerId,
-                                    deviceId = deviceId,
-                                    devicePublicKey = publicKeyBase64
-                                )
-                            )
-                            Log.d("TPAP", "Device registered successfully via hidden WebView")
-                            registrationComplete = true
-                            true
-                        } catch (e: Exception) {
-                            Log.e("TPAP", "Failed to register device via hidden WebView", e)
-                            false
-                        }
-                    }
-                    
-                    @android.webkit.JavascriptInterface
-                    fun getDeviceId(): String = deviceId
-                    
-                    @android.webkit.JavascriptInterface
-                    fun getBackendConfig(): String {
-                        return org.json.JSONObject().apply {
-                            put("baseUrl", baseUrl)
-                            put("consumerId", consumerId)
-                        }.toString()
-                    }
-                    
-                    @android.webkit.JavascriptInterface
-                    fun log(message: String) {
-                        Log.d("TPAP", "Bundle: $message")
-                    }
-                },
-                "Android"
-            )
-            
-            // Load the bundle HTML and wait for registration
-            hiddenWebView.webViewClient = object : android.webkit.WebViewClient() {
-                override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-                    super.onPageFinished(view, url)
-                    // Trigger bundle initialization which will register the device
-                    view?.evaluateJavascript(
-                        """
-                        (async function() {
-                            try {
-                                if (window.BBPSBundle && window.BBPSBundle.ensureDeviceKeyPair) {
-                                    await window.BBPSBundle.ensureDeviceKeyPair();
-                                    if (window.Android && window.Android.log) {
-                                        window.Android.log('Device registration check complete');
-                                    }
-                                }
-                            } catch (e) {
-                                if (window.Android && window.Android.log) {
-                                    window.Android.log('Registration check error: ' + e.message);
-                                }
-                            }
-                        })();
-                        """.trimIndent(),
-                        null
-                    )
-                }
-            }
-            
-            hiddenWebView.loadUrl("file:///android_asset/web/index.html")
-            
-            // Wait for registration (with timeout)
-            var attempts = 0
-            while (!registrationComplete && attempts < 20) {
-                delay(100)
-                attempts++
-            }
-            
-            if (registrationComplete) {
-                Log.d("TPAP", "Device registration completed via hidden WebView")
-            } else {
-                Log.w("TPAP", "Device registration timeout - will retry on encryption")
-            }
-        } catch (e: Exception) {
-            Log.w("TPAP", "Failed to ensure device registration via hidden WebView (non-critical)", e)
-            // Non-critical - registration will happen when StatementWebViewActivity loads
-        }
-    }
-
-    /**
-     * Register device by initializing bundle and waiting for registration
-     * This ensures device is registered before encryption is attempted
-     */
-    suspend fun registerDeviceSync(
-        context: android.content.Context,
-        deviceId: String,
-        baseUrl: String,
-        consumerId: String
-    ): Boolean = withContext(Dispatchers.Main) {
-        val registrationComplete = kotlinx.coroutines.CompletableDeferred<Boolean>()
-        var webView: android.webkit.WebView? = null
-        
-        try {
-            Log.d("TPAP", "Initializing bundle for device registration...")
-            
-            webView = android.webkit.WebView(context).apply {
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                }
-                
-                // Add JavaScript interface for registration
-                addJavascriptInterface(
-                    object {
-                        @android.webkit.JavascriptInterface
-                        fun registerDevice(
-                            baseUrl: String,
-                            consumerId: String,
-                            deviceId: String,
-                            publicKeyBase64: String
-                        ): Boolean {
-                            return try {
-                                org.npci.bbps.tpap.network.BackendApi.registerDevice(
-                                    baseUrl = baseUrl,
-                                    request = org.npci.bbps.tpap.model.DeviceRegistrationRequest(
-                                        consumerId = consumerId,
-                                        deviceId = deviceId,
-                                        devicePublicKey = publicKeyBase64
-                                    )
-                                )
-                                Log.d("TPAP", "✓ Device registered successfully")
-                                registrationComplete.complete(true)
-                                true
-                            } catch (e: Exception) {
-                                Log.e("TPAP", "✗ Device registration failed", e)
-                                registrationComplete.complete(false)
-                                false
-                            }
-                        }
-                        
-                        @android.webkit.JavascriptInterface
-                        fun getDeviceId(): String = deviceId
-                        
-                        @android.webkit.JavascriptInterface
-                        fun getBackendConfig(): String {
-                            return org.json.JSONObject().apply {
-                                put("baseUrl", baseUrl)
-                                put("consumerId", consumerId)
-                            }.toString()
-                        }
-                        
-                        @android.webkit.JavascriptInterface
-                        fun log(message: String) {
-                            Log.d("TPAP", "Bundle: $message")
-                        }
-                    },
-                    "Android"
-                )
-                
-                webViewClient = object : android.webkit.WebViewClient() {
-                    override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        Log.d("TPAP", "Bundle page loaded, triggering registration...")
-                        
-                        // Trigger bundle initialization which will register the device
-                        view?.evaluateJavascript(
-                            """
-                            (async function() {
-                                try {
-                                    if (window.BBPSBundle && window.BBPSBundle.ensureDeviceKeyPair) {
-                                        Android.log('Ensuring device key pair and registration...');
-                                        await window.BBPSBundle.ensureDeviceKeyPair();
-                                        Android.log('Device registration check complete');
-                                    } else {
-                                        Android.log('ERROR: BBPSBundle not available');
-                                        Android.registerDevice('', '', '', ''); // Trigger failure
-                                    }
-                                } catch (e) {
-                                    Android.log('ERROR: ' + e.message);
-                                    Android.registerDevice('', '', '', ''); // Trigger failure
-                                }
-                            })();
-                            """.trimIndent(),
-                            null
-                        )
-                    }
-                }
-            }
-            
-            // Load the bundle
-            webView.loadUrl("file:///android_asset/web/index.html")
-            
-            // Wait for registration with timeout (10 seconds)
-            Log.d("TPAP", "Waiting for device registration...")
-            val success = withTimeoutOrNull(10000) {
-                registrationComplete.await()
-            } ?: false
-            
-            if (success) {
-                Log.d("TPAP", "✓ Device registration completed successfully")
-            } else {
-                Log.w("TPAP", "✗ Device registration timeout or failed")
-            }
-            
-            return@withContext success
-        } catch (e: Exception) {
-            Log.e("TPAP", "Device registration error", e)
-            registrationComplete.complete(false)
-            return@withContext false
-        } finally {
-            // Clean up WebView
-            webView?.destroy()
-        }
-    }
-
     fun startEncryptedFlow(
         payloadType: String,
-        encryptFn: (String, EncryptStatementRequest) -> org.npci.bbps.tpap.model.EncryptedStatementResponse
+        encryptFn: (String, EncryptStatementRequest) -> org.npci.bbps.tpap.model.EncryptedStatementResponse,
+        category: String? = null
     ) {
         scope.launch {
             isLoading = true
             errorMessage = null
 
-            try {
-                val baseUrl = AppConfig.baseUrl
-                val consumerId = AppConfig.consumerId
+            val baseUrl = AppConfig.baseUrl
+            val consumerId = AppConfig.consumerId
+            val request = EncryptStatementRequest(
+                statementId = AppConfig.statementId,
+                consumerId = consumerId,
+                deviceId = deviceId,
+                category = category
+            )
 
-                // CRITICAL: Register device BEFORE attempting encryption
-                Log.d("TPAP", "Ensuring device is registered before encryption...")
-                val registrationSuccess = registerDeviceSync(context, deviceId, baseUrl, consumerId)
-                
-                if (!registrationSuccess) {
-                    errorMessage = "Failed to register device. Please try again."
-                    return@launch
+            try {
+                // 1. First call encrypt (use existing device/customer if already registered)
+                Log.d("TPAP", "Calling encrypt API first (category: ${category ?: "ELECTRICITY"})...")
+                var response: org.npci.bbps.tpap.model.EncryptedStatementResponse? = null
+                try {
+                    response = withContext(Dispatchers.IO) {
+                        encryptFn(baseUrl, request)
+                    }
+                } catch (e: Exception) {
+                    val isRegistrationFailure = e.message?.contains("500") == true ||
+                            e.message?.contains("No ACTIVE device key", ignoreCase = true) == true ||
+                            e.message?.contains("device key", ignoreCase = true) == true
+                    if (isRegistrationFailure) {
+                        Log.w("TPAP", "Encrypt failed (no device key) - running device registration as fallback...")
+                        clearDeviceRegistration(context, deviceId, consumerId)
+                        val registrationSuccess = registerDeviceSync(context, deviceId, baseUrl, consumerId)
+                        if (registrationSuccess) {
+                            Log.d("TPAP", "Fallback registration done, retrying encrypt...")
+                            response = withContext(Dispatchers.IO) { encryptFn(baseUrl, request) }
+                        } else {
+                            errorMessage = "Device registration failed. Please try again."
+                            return@launch
+                        }
+                    } else {
+                        throw e
+                    }
                 }
-                
-                Log.d("TPAP", "Device registered, calling encrypt API...")
-                
-                val response = withContext(Dispatchers.IO) {
-                    encryptFn(
-                        baseUrl,
-                        EncryptStatementRequest(
-                            statementId = AppConfig.statementId,
-                            consumerId = consumerId,
-                            deviceId = deviceId
-                        )
-                    )
+
+                if (response == null) {
+                    errorMessage = "Failed to get encrypted data."
+                    return@launch
                 }
 
                 Log.d("TPAP", "Received encrypted response from backend")
                 Log.d("TPAP", "Encrypted payload length: ${response.encryptedPayload.length}")
-                Log.d("TPAP", "Wrapped DEK length: ${response.wrappedDek.length}")
-                Log.d("TPAP", "IV: ${response.iv}")
-                Log.d("TPAP", "Sender public key length: ${response.senderPublicKey.length}")
 
                 launchCallableUi(response, payloadType)
 
             } catch (e: Exception) {
                 Log.e("TPAP", "Error in secure payload flow", e)
-                
-                // If encryption fails with 500, device registration might have failed
-                if (e.message?.contains("500") == true || e.message?.contains("No ACTIVE device key") == true) {
-                    errorMessage = "Device registration may have failed. Please try again."
-                } else {
-                    errorMessage = "Failed to load secure data: ${e.message}"
-                }
+                errorMessage = "Failed to load secure data: ${e.message}"
             } finally {
                 isLoading = false
             }
@@ -1641,7 +1632,8 @@ fun PaymentScreen(
         } else {
             startEncryptedFlow(
                 payloadType = "BILL_STATEMENT",
-                encryptFn = BackendApi::encryptBillStatement
+                encryptFn = BackendApi::encryptBillStatement,
+                category = "ELECTRICITY"  // Explicitly set for electricity bills
             )
         }
     }

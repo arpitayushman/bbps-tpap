@@ -21,6 +21,7 @@ object BackendApi {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        encodeDefaults = true  // Include default values in JSON
     }
     
     fun registerDevice(
@@ -51,6 +52,13 @@ object BackendApi {
         request: EncryptStatementRequest
     ): EncryptedStatementResponse {
         val jsonBody = json.encodeToString(request)
+        // Debug: Log the JSON being sent
+        android.util.Log.d("BackendApi", "Sending request to $path")
+        android.util.Log.d("BackendApi", "Request JSON body: $jsonBody")
+        android.util.Log.d("BackendApi", "Request category field value: '${request.category}'")
+        android.util.Log.d("BackendApi", "Request statementId: '${request.statementId}'")
+        android.util.Log.d("BackendApi", "Request consumerId: '${request.consumerId}'")
+        android.util.Log.d("BackendApi", "Request deviceId: '${request.deviceId}'")
         val requestBody = jsonBody.toRequestBody("application/json".toMediaType())
         
         val httpRequest = Request.Builder()

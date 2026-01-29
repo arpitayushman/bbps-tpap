@@ -468,32 +468,18 @@ async function processEncryptedStatement(params) {
     console.log('Splash screen shown, starting decryption...');
 
     try {
-        // Ensure device key pair exists (generates if needed) and is registered
-        // This MUST complete before decryption to ensure the backend has the correct key
-        console.log('Ensuring device key pair exists and is registered...');
+        // Ensure device key pair exists (load from IndexedDB or generate).
+        // Do NOT register with backend here: the payload was already encrypted for a specific
+        // device key. Registering now could overwrite the backend key and break decryption
+        // (e.g. QR was encrypted with key A; we generate key B and register it; decrypt fails).
+        console.log('Ensuring device key pair exists (no API call)...');
         await ensureDeviceKeyPair();
         
         if (!devicePrivateKey) {
             throw new Error('Device private key not available. Cannot perform decryption.');
         }
 
-        // CRITICAL: Ensure device is registered with backend BEFORE decryption
-        // This ensures the backend has the bundle's key registered
-        // If encryption happened with a different key, decryption will fail
-        console.log('Ensuring device is registered with backend using bundle key...');
-        const registrationSuccess = await autoRegisterDevice();
-        
-        if (!registrationSuccess) {
-            // Registration failed - this is critical for decryption to work
-            // The backend encrypted with a key that doesn't match our key
-            const errorMsg = 'Device registration failed. The encrypted data may have been encrypted with a different device key. Please request fresh encrypted data after registration completes.';
-            console.error(errorMsg);
-            uiController.showError(errorMsg);
-            return;
-        }
-        
-        console.log('✓ Device registration verified/completed successfully');
-        console.log('✓ Proceeding with decryption using registered device key');
+        console.log('Using device key for decryption (payload was encrypted for this key)...');
 
         // Initialize WASM crypto engine for best practices
         console.log('Initializing WASM crypto engine...');
