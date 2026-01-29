@@ -28,7 +28,7 @@ object AppConfig {
     }
     
     // Set your current environment here
-    private val currentEnvironment = Environment.AWS;
+    private val currentEnvironment = Environment.EMULATOR;
     
     /**
      * Get the backend base URL based on current environment

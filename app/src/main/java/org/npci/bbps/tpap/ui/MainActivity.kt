@@ -65,6 +65,7 @@ import org.npci.bbps.tpap.model.QrPaymentPayload
 import org.npci.bbps.tpap.network.BackendApi
 import org.npci.bbps.tpap.ui.StatementWebViewActivity
 import org.npci.bbps.tpap.util.QrIntentContract
+import androidx.compose.foundation.BorderStroke
 
 // --- Colors ---
 val BharatBlue = Color(0xFF1976D2) // Primary blue matching Bharat Connect
@@ -139,6 +140,13 @@ fun AppNavigation(qrPayload: QrPaymentPayload? = null) {
             CreditCardDetailsScreen(navController, name)
         }
 
+        // --- NEW ROUTE FOR CREDIT CARD REVIEW (Intermediate Screen) ---
+        composable("credit_card_review/{bankName}/{lastFourDigits}") { backStackEntry ->
+            val name = backStackEntry.arguments?.getString("bankName")?.replace("_", " ") ?: "Bank"
+            val digits = backStackEntry.arguments?.getString("lastFourDigits") ?: ""
+            CreditCardReviewScreen(navController, name, digits)
+        }
+
         composable("payment_screen/{billerName}/{consumerNumber}") { backStackEntry ->
             val billerName = backStackEntry.arguments?.getString("billerName")?.replace("_", " ") ?: "Biller"
             val consumerNumber = backStackEntry.arguments?.getString("consumerNumber") ?: ""
@@ -147,6 +155,10 @@ fun AppNavigation(qrPayload: QrPaymentPayload? = null) {
                 payloadConsumer.isBlank() || payloadConsumer == consumerNumber
             }
             PaymentScreen(navController, billerName, consumerNumber, qrPayload = matchedQrPayload)
+        }
+        composable("statement_selection/{bankName}") { backStackEntry ->
+            val name = backStackEntry.arguments?.getString("bankName")?.replace("_", " ") ?: "Bank"
+            StatementSelectionScreen(navController, name)
         }
     }
 }
@@ -675,7 +687,10 @@ fun CreditCardDetailsScreen(navController: NavController, bankName: String) {
         },
         bottomBar = {
             Button(
-                onClick = onCreditCardMiniStatementClick,
+                onClick = {
+                    val encoded = bankName.replace(" ", "_")
+                    navController.navigate("credit_card_review/$encoded/$lastFourDigits")
+                },
                 enabled = !isLoading && lastFourDigits.length == 4 && isConsentGiven,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1920,4 +1935,387 @@ private fun DeviceIdDialog(deviceId: String?, onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+@Composable
+fun CreditCardReviewScreen(navController: NavController, bankName: String, lastFour: String) {
+    val context = LocalContext.current
+    var isDetailsVisible by remember { mutableStateOf(true) }
+
+    Scaffold(
+        topBar = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(110.dp)
+                    .background(BharatBlue)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, start = 8.dp, end = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                    }
+                    Text(
+                        text = "Pay Credit Card Bill",
+                        modifier = Modifier.weight(1f),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Image(
+                        painter = painterResource(id = R.drawable.bharat_connect_text),
+                        contentDescription = null,
+                        modifier = Modifier.height(18.dp),
+                        colorFilter = ColorFilter.tint(Color.White)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Default.HelpOutline, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+            }
+        },
+        bottomBar = {
+            Surface(shadowElevation = 8.dp) {
+                Button(
+                    onClick = { /* Payment Logic */ },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A3B8E)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("PAY YOUR BILL", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                }
+            }
+        },
+        containerColor = BgGray
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .offset(y = (-25).dp)
+                    .fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(4.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .border(1.dp, Color.LightGray.copy(0.5f), RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("BANK", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(bankName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("XXXX $lastFour", color = Color.Gray, fontSize = 13.sp)
+                        }
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Bill Details", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(
+                            text = if (isDetailsVisible) "Hide" else "Show",
+                            color = BharatBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { isDetailsVisible = !isDetailsVisible }
+                        )
+                    }
+
+                    if (isDetailsVisible) {
+                        Spacer(Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF8F9FB), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DetailRow("Customer Name", "JOHN DOE")
+                                DetailRow("Bill Date", "08-Jan-2026")
+                                DetailRow("Minimum Amount Due", "₹ 100.00")
+                                DetailRow("Current Outstanding Amount", "₹ 199.00")
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(75.dp)
+                            .border(1.dp, Color.LightGray.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = "₹ 199",
+                            modifier = Modifier.padding(start = 16.dp),
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+
+                    Text(
+                        text = "Due Date: 26-Jan-2026",
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .background(Color(0xFFFFEBEE), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        color = Color.Red,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // VIEW MY STATEMENT - Simple Navigation
+            OutlinedButton(
+                onClick = {
+                    val encodedBank = bankName.replace(" ", "_")
+                    navController.navigate("statement_selection/$encodedBank")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(25.dp),
+                border = BorderStroke(1.dp, BharatBlue)
+            ) {
+                Icon(Icons.Default.Description, null, modifier = Modifier.size(18.dp), tint = BharatBlue)
+                Spacer(Modifier.width(8.dp))
+                Text("VIEW MY STATEMENT", fontWeight = FontWeight.Bold, color = BharatBlue)
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFF8E1), RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFFFFE082), RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Row {
+                    Icon(Icons.Default.ErrorOutline, null, tint = Color(0xFFF57C00), modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Note: $bankName will consider today's date as payment date. It may take up to 30 minutes to reflect in account.",
+                        fontSize = 11.sp, color = Color(0xFF5D4037), lineHeight = 16.sp
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Image(painter = painterResource(id = R.drawable.bharat_connect_logo), contentDescription = null, modifier = Modifier.size(28.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = "By proceeding further, you allow BBPS to store your bill details, fetch current and future bills, and send you reminders.",
+                    fontSize = 10.sp, color = Color.Gray, lineHeight = 14.sp
+                )
+            }
+            Spacer(Modifier.height(40.dp))
+        }
+    }
+}
+
+@Composable
+fun StatementSelectionScreen(navController: NavController, bankName: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val deviceId = remember {
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+    }
+
+    Scaffold(
+        topBar = {
+            Box(modifier = Modifier.fillMaxWidth().height(100.dp).background(BharatBlue)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, start = 8.dp, end = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White)
+                    }
+                    Text("View Statement", modifier = Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, textAlign = TextAlign.Center)
+                    Text("HELP", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.HelpOutline, null, tint = Color.White, modifier = Modifier.size(20.dp).padding(start = 4.dp))
+                }
+            }
+        },
+        containerColor = BgGray
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+
+            // Error Message Display
+            if (errorMessage != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Error, null, tint = Color(0xFFD32F2F), modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(text = errorMessage!!, color = Color(0xFFD32F2F), fontSize = 14.sp)
+                    }
+                }
+            }
+
+            // Current Month Option - The "Live" Flow
+            StatementOptionCard(
+                title = "Current Month",
+                subtitle = "View statement for Jan '26",
+                isLoading = isLoading,
+                onClick = {
+                    scope.launch {
+                        isLoading = true
+                        errorMessage = null
+                        val baseUrl = AppConfig.baseUrl
+                        val consumerId = AppConfig.consumerId
+                        val request = EncryptStatementRequest(
+                            statementId = AppConfig.statementId,
+                            consumerId = consumerId,
+                            deviceId = deviceId,
+                            category = "CREDIT_CARD"
+                        )
+
+                        try {
+                            var response: EncryptedStatementResponse? = null
+                            try {
+                                response = withContext(Dispatchers.IO) {
+                                    BackendApi.encryptBillStatement(baseUrl, request)
+                                }
+                            } catch (e: Exception) {
+                                // Device Registration Fallback
+                                if (e.message?.contains("500") == true || e.message?.contains("device key", true) == true) {
+                                    clearDeviceRegistration(context, deviceId, consumerId)
+                                    if (registerDeviceSync(context, deviceId, baseUrl, consumerId)) {
+                                        response = withContext(Dispatchers.IO) {
+                                            BackendApi.encryptBillStatement(baseUrl, request)
+                                        }
+                                    }
+                                } else throw e
+                            }
+
+                            response?.let {
+                                val intent = Intent(context, StatementWebViewActivity::class.java).apply {
+                                    putExtra("encryptedPayload", it.encryptedPayload)
+                                    putExtra("wrappedDek", it.wrappedDek)
+                                    putExtra("iv", it.iv)
+                                    putExtra("senderPublicKey", it.senderPublicKey)
+                                    putExtra("payloadType", "BILL_STATEMENT")
+                                }
+                                context.startActivity(intent)
+                            } ?: run { errorMessage = "Failed to load statement." }
+                        } catch (e: Exception) {
+                            errorMessage = "Error: ${e.message}"
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                }
+            )
+
+            StatementOptionCard("Last Month", "View statement for Dec '25")
+            StatementOptionCard("Past Month", "View Past Month Statements")
+            StatementOptionCard("Annual", "View Annual Statements")
+            StatementOptionCard("Custom Statement", "Customize Statements")
+        }
+    }
+}
+
+@Composable
+fun DetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            color = Color.Gray,
+            fontSize = 13.sp
+        )
+        Text(
+            text = value,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            color = Color.Black
+        )
+    }
+}
+
+@Composable
+fun StatementOptionCard(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit = {},
+    isLoading: Boolean = false
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .clickable(enabled = !isLoading) { onClick() },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(subtitle, color = Color.Gray, fontSize = 13.sp)
+            }
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = BharatBlue
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = Color.LightGray
+                )
+            }
+        }
+    }
 }
